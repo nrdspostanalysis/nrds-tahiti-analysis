@@ -6092,7 +6092,7 @@ function onDataUpdated(){
   let priorityRanked = { plant: [], cut: [], maintain: [] };
   let priorityHtml = '';
   try {
-    priorityRanked = priorityZonesRanked(20, includeStaleInPriority);
+    priorityRanked = priorityZonesRanked(priorityShowAll ? Infinity : 20, includeStaleInPriority);
     priorityHtml = `<div style="margin-top:10px;">
       ${renderPriorityZonesDropdown(priorityRanked)}
       <div class="priority-calc-box" id="priorityCalcBox" style="display:${priorityDetailsOpen?'':'none'};">${renderPriorityCalcBox(priorityRanked)}</div>
@@ -8928,8 +8928,10 @@ function priorityZonesRanked(n, includeStale){
 let includeStaleInPriority = true;
 let priorityDetailsOpen = false;
 let priorityValleyFilter = 'all';
+let priorityShowAll = false; // false = top 20 per list (default); true = every qualifying zone
 function togglePriorityStale(checked){ includeStaleInPriority = checked; onDataUpdated(); }
 function setPriorityValley(v){ priorityValleyFilter = v; onDataUpdated(); }
+function togglePriorityShowAll(checked){ priorityShowAll = checked; onDataUpdated(); }
 
 // Two-line layout per zone (label+bar on top, stat text below, indented) — deliberately NOT one
 // long nowrap row: with 3 priority columns now sharing the widget's width (was 2), a single-line
@@ -8963,9 +8965,11 @@ function renderPriorityZonesDropdown(ranked){
   }).join('');
   var staleToggle = '<label class="muted" style="display:flex;align-items:center;gap:5px;">' +
     '<input type="checkbox" id="priorityStaleToggle" '+(includeStaleInPriority?'checked':'')+' onchange="togglePriorityStale(this.checked)"> include ⚠ stale zones</label>';
+  var showAllToggle = '<label class="muted" style="display:flex;align-items:center;gap:5px;">' +
+    '<input type="checkbox" id="priorityShowAllToggle" '+(priorityShowAll?'checked':'')+' onchange="togglePriorityShowAll(this.checked)"> show all zones (not just top 20)</label>';
   var controls = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;align-items:center;">' +
     '<label class="muted" style="display:flex;align-items:center;gap:6px;">Valley: <select onchange="setPriorityValley(this.value)" style="padding:2px 6px;font-size:12px;">'+valleyOpts+'</select></label>' +
-    staleToggle + '</div>';
+    staleToggle + showAllToggle + '</div>';
   var openAttr = priorityDetailsOpen ? 'open' : '';
   var toggleAttr = 'ontoggle="priorityDetailsOpen=this.open;document.getElementById(\'priorityCalcBox\').style.display=this.open?\'\':\''+'none\'"';
   var plant = ranked.plant || [], cut = ranked.cut || [], maintain = ranked.maintain || [];
@@ -9003,7 +9007,7 @@ function renderPriorityZonesDropdown(ranked){
   return '<details style="margin-top:10px;" '+openAttr+' '+toggleAttr+'>' +
     '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting, cutting &amp; maintenance (click to expand)</summary>' +
     '<div style="margin-top:8px;">'+controls +
-    '<div class="muted" style="margin-bottom:8px;">Top '+Math.max(plant.length,cut.length,maintain.length)+' each (TO MAINTAIN filtered to zones &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut) · three independent rankings, never blended</div>' +
+    '<div class="muted" style="margin-bottom:8px;">'+(priorityShowAll ? 'All qualifying zones shown' : 'Top '+Math.max(plant.length,cut.length,maintain.length)+' each')+' (TO MAINTAIN filtered to zones &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut) · three independent rankings, never blended</div>' +
     columns + '</div></details>';
 }
 
