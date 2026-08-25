@@ -8881,13 +8881,19 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
     // highest — a zone reported as basically done years ago that nobody has been back to since is
     // the one most likely to have silently regrown untended.
     var maintainEligible = histCutPct > MAINTAIN_HIST_THRESHOLD;
-    var toMaintainScore = maintainEligible ? 1/(1+actionCount) : 0;
+    // Optional secondary factor (checkbox, off by default): discount TO MAINTAIN priority by NRDS
+    // planting effort recorded in the zone — same halflife-decay shape as TO PLANT's own
+    // activityDiscount, reusing PLANT_ACTIVITY_HALFLIFE for consistency. "NRDS only" per Marco's
+    // request: nrdsCount is individuals planted from live NRDS data, not the historical survey.
+    var maintainPlantDiscount = includePlantingInMaintain ? Math.pow(0.5, nrdsCount / PLANT_ACTIVITY_HALFLIFE) : 1;
+    var toMaintainScore = maintainEligible ? (1/(1+actionCount)) * maintainPlantDiscount : 0;
 
     return { projPct:projPct, histPct:histPct, nrdsPctAdd:nrdsPctAdd,
              nrdsCount:nrdsCount, activityDiscount:activityDiscount,
              topoType:topo.type, domWeight:domWeight, toPlantScore:toPlantScore,
              histCutPct:histCutPct, personDaysCut:personDaysCut, cutActivityDiscount:cutActivityDiscount, toCutScore:toCutScore,
-             actionCount:actionCount, maintainEligible:maintainEligible, toMaintainScore:toMaintainScore };
+             actionCount:actionCount, maintainEligible:maintainEligible,
+             maintainPlantDiscount:maintainPlantDiscount, toMaintainScore:toMaintainScore };
   } catch(e){ return null; }
 }
 
@@ -8916,7 +8922,7 @@ function priorityZonesRanked(n, includeStale){
   var plant = scored.slice().sort(function(a,b){ return b.score.toPlantScore - a.score.toPlantScore; }).slice(0, n);
   var cut = scored.slice().sort(function(a,b){ return b.score.toCutScore - a.score.toCutScore; }).slice(0, n);
   var maintain = scored.filter(function(d){ return d.score.maintainEligible; })
-    .sort(function(a,b){ return a.score.actionCount - b.score.actionCount; }).slice(0, n);
+    .sort(function(a,b){ return b.score.toMaintainScore - a.score.toMaintainScore; }).slice(0, n);
   return { plant: plant, cut: cut, maintain: maintain };
 }
 
@@ -8929,9 +8935,11 @@ let includeStaleInPriority = true;
 let priorityDetailsOpen = false;
 let priorityValleyFilter = 'all';
 let priorityShowAll = false; // false = top 20 per list (default); true = every qualifying zone
+let includePlantingInMaintain = false; // TO MAINTAIN only: also discount by NRDS planting effort
 function togglePriorityStale(checked){ includeStaleInPriority = checked; onDataUpdated(); }
 function setPriorityValley(v){ priorityValleyFilter = v; onDataUpdated(); }
 function togglePriorityShowAll(checked){ priorityShowAll = checked; onDataUpdated(); }
+function toggleMaintainPlanting(checked){ includePlantingInMaintain = checked; onDataUpdated(); }
 
 // Two-line layout per zone (label+bar on top, stat text below, indented) — deliberately NOT one
 // long nowrap row: with 3 priority columns now sharing the widget's width (was 2), a single-line
@@ -8988,8 +8996,12 @@ function renderPriorityZonesDropdown(ranked){
     return priorityBarRow(d, i, 'toCutScore', maxCut, '#c9822a', Math.round(d.score.histCutPct)+'% hist cut · '+d.score.personDaysCut.toFixed(0)+' person-days');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone with data.</div>';
   var maintainRows = maintain.map(function(d,i){
-    return priorityBarRow(d, i, 'toMaintainScore', maxMaintain, '#8e5bc0', Math.round(d.score.histCutPct)+'% hist cut · '+d.score.actionCount+' action(s) recorded');
+    var stat = Math.round(d.score.histCutPct)+'% hist cut · '+d.score.actionCount+' action(s) recorded' +
+      (includePlantingInMaintain ? ' · '+d.score.nrdsCount+' ind. planted' : '');
+    return priorityBarRow(d, i, 'toMaintainScore', maxMaintain, '#8e5bc0', stat);
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut.</div>';
+  var maintainPlantToggle = '<label class="muted" style="display:flex;align-items:center;gap:5px;font-size:11px;margin-bottom:5px;">' +
+    '<input type="checkbox" id="maintainPlantToggle" '+(includePlantingInMaintain?'checked':'')+' onchange="toggleMaintainPlanting(this.checked)"> also factor in NRDS plantings (fewer planted = higher priority)</label>';
   var columns = '<div class="priority-columns">' +
     '<div class="priority-column">' +
       '<div style="font-size:12.5px;font-weight:700;color:#2ca02c;margin-bottom:5px;">🌱 TO PLANT — needs planting most</div>' +
@@ -9001,6 +9013,7 @@ function renderPriorityZonesDropdown(ranked){
     '</div>' +
     '<div class="priority-column">' +
       '<div style="font-size:12.5px;font-weight:700;color:#8e5bc0;margin-bottom:5px;">🔁 TO MAINTAIN — mostly cut, least visited</div>' +
+      maintainPlantToggle +
       maintainRows +
     '</div>' +
   '</div>';
@@ -9223,7 +9236,7 @@ function renderPriorityCalcBox(ranked){
   var html = '<b>Priority zones — three independent rankings</b><br><br>' +
     '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort.<br>' +
     '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far.<br>' +
-    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. Not a continuous score blended with the other two — a filtered, sorted list.<br><br>' +
+    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally discount this by NRDS planting effort — <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code>, same shape and halflife as TO PLANT\'s own discount, NRDS individuals only (not the historical survey) — so a zone with more plantings already recorded there ranks lower even at the same action count. Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
     '<b>Typology weights</b> (TO PLANT only): C=1.0 · B=0.8 · A*=0.4 · A=0.2 · X=0 — an unplanted zone that\'s already native-dominant (natural regen under way) ranks low; unplanted + invasive-dominant ranks highest.<br>' +
     '<b>Activity discount</b> (TO PLANT): <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code> — halves every '+PLANT_ACTIVITY_HALFLIFE+' individuals NRDS has planted in that zone since the historical baseline. Corrects for proj_planting% understating effort in large zones, where a real planting session barely moves the area-normalized %.<br>' +
     '<b>Activity discount</b> (TO CUT): <code>0.5 ^ (person_days_cutting / '+CUT_ACTIVITY_HALFLIFE+')</code> — halves every '+CUT_ACTIVITY_HALFLIFE+' person-days (headcount × session) of recorded Coupe du sous-bois work in that zone. NRDS has no hours-worked field, so person-days — already used the same way in the "People involved" chart — is the closest available proxy for effort.<br>' +
@@ -9255,11 +9268,13 @@ function renderPriorityCalcBox(ranked){
   if (!maintain.length){
     html += '<b>🔁 TO MAINTAIN ranking</b><div class="muted" style="margin:4px 0 10px;">No zone &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut.</div>';
   } else {
-    html += '<b>🔁 TO MAINTAIN ranking</b><div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
-      '<th>#</th><th>Unit</th><th>Hist cut%</th><th>Actions recorded</th></tr></thead><tbody>';
+    html += '<b>🔁 TO MAINTAIN ranking</b>'+(includePlantingInMaintain ? ' <span class="muted">(plantings factored in)</span>' : '')+
+      '<div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
+      '<th>#</th><th>Unit</th><th>Hist cut%</th><th>Actions recorded</th><th>Ind. planted</th><th>Discount</th></tr></thead><tbody>';
     maintain.forEach(function(d,i){
       html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td>' +
-        '<td>'+Math.round(d.score.histCutPct)+'%</td><td>'+d.score.actionCount+'</td></tr>';
+        '<td>'+Math.round(d.score.histCutPct)+'%</td><td>'+d.score.actionCount+'</td>' +
+        '<td>'+d.score.nrdsCount+'</td><td>×'+d.score.maintainPlantDiscount.toFixed(2)+'</td></tr>';
     });
     html += '</tbody></table></div>';
   }
