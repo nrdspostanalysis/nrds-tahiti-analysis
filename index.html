@@ -241,6 +241,14 @@
   .map-container{flex:1;min-width:0;height:560px;border:1px solid var(--border);border-radius:var(--r);}
   .map-combined-box{flex:0 0 360px;max-height:560px;overflow-y:auto;background:#f7faf6;border:1px solid var(--border);border-radius:var(--r);padding:12px;}
 
+  /* ── Home priority-zones widget ── deliberately NOT the map-flex-row/map-combined-box side-by-side
+     pair above: that pair assumes a wide fixed-height map next to a fixed-360px sidebar, which starves
+     a 3-column ranked list of the horizontal room it needs. The calc box goes full-width BELOW the
+     widget instead, so the widget always gets the entire content width for its columns. */
+  .priority-columns{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px;}
+  .priority-column{flex:1 1 190px;min-width:0;}
+  .priority-calc-box{margin-top:12px;max-height:420px;overflow-y:auto;background:#f7faf6;border:1px solid var(--border);border-radius:var(--r);padding:12px;}
+
   /* ── Bird species picker modal ── */
   .bird-modal-backdrop{position:fixed;inset:0;z-index:9998;background:rgba(20,30,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
   .bird-modal-box{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow-md);width:min(640px,100%);max-height:85vh;display:flex;flex-direction:column;overflow:hidden;}
@@ -305,6 +313,8 @@
     .map-flex-row{flex-direction:column;}
     .map-container{flex:none;width:100%;height:380px;}
     .map-combined-box{flex:none;width:100%;max-height:300px;}
+    .priority-calc-box{max-height:300px;}
+    .priority-column{flex-basis:100%;}
     table.preview{font-size:11px;}
     .tabs{padding:3px;}
     .tabs button{padding:7px 12px;font-size:13px;}
@@ -6083,9 +6093,9 @@ function onDataUpdated(){
   let priorityHtml = '';
   try {
     priorityRanked = priorityZonesRanked(20, includeStaleInPriority);
-    priorityHtml = `<div class="map-flex-row" style="margin-top:10px;">
-      <div style="flex:1;min-width:0;">${renderPriorityZonesDropdown(priorityRanked)}</div>
-      <div class="map-combined-box" id="priorityCalcBox" style="display:${priorityDetailsOpen?'':'none'};">${renderPriorityCalcBox(priorityRanked)}</div>
+    priorityHtml = `<div style="margin-top:10px;">
+      ${renderPriorityZonesDropdown(priorityRanked)}
+      <div class="priority-calc-box" id="priorityCalcBox" style="display:${priorityDetailsOpen?'':'none'};">${renderPriorityCalcBox(priorityRanked)}</div>
     </div>`;
   } catch(e) {
     console.error('[priorityZonesRanked] crash:', e);
@@ -8921,18 +8931,26 @@ let priorityValleyFilter = 'all';
 function togglePriorityStale(checked){ includeStaleInPriority = checked; onDataUpdated(); }
 function setPriorityValley(v){ priorityValleyFilter = v; onDataUpdated(); }
 
+// Two-line layout per zone (label+bar on top, stat text below, indented) — deliberately NOT one
+// long nowrap row: with 3 priority columns now sharing the widget's width (was 2), a single-line
+// row with a fixed-width nowrap stat span overflowed its column and visually collided with the
+// neighboring column/calc-box on both narrow desktop widths and phones. Stacking removes the need
+// for any element here to have a hard minimum width beyond the ~90px unit-name chip, so the row
+// degrades gracefully all the way down to the narrowest phone screen.
 function priorityBarRow(d, i, scoreKey, maxScore, barColor, statLine){
   var score = d.score[scoreKey];
   var pct = maxScore > 0 ? Math.max(2, Math.round(score/maxScore*100)) : 0;
   var stale = d.lastDays != null && d.lastDays > STALE_DAYS;
-  return '<div style="display:flex;align-items:center;gap:8px;padding:4px 6px;">' +
-    '<span class="muted" style="width:16px;font-size:11px;flex-shrink:0;">#'+(i+1)+'</span>' +
-    '<span style="width:64px;flex-shrink:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+escapeHtml(d.unit)+' ('+escapeHtml(d.valley)+')">'+escapeHtml(d.unit)+'</span>' +
-    '<div style="flex:1;min-width:30px;background:#eef2ec;border-radius:3px;height:15px;overflow:hidden;">' +
-      '<div style="width:'+pct+'%;height:100%;background:'+barColor+';border-radius:3px;"></div>' +
+  return '<div style="padding:4px 6px;min-width:0;">' +
+    '<div style="display:flex;align-items:center;gap:8px;min-width:0;">' +
+      '<span class="muted" style="width:16px;flex-shrink:0;font-size:11px;">#'+(i+1)+'</span>' +
+      '<span style="max-width:96px;flex-shrink:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+escapeHtml(d.unit)+' ('+escapeHtml(d.valley)+')">'+escapeHtml(d.unit)+'</span>' +
+      '<div style="flex:1;min-width:20px;background:#eef2ec;border-radius:3px;height:15px;overflow:hidden;">' +
+        '<div style="width:'+pct+'%;height:100%;background:'+barColor+';border-radius:3px;"></div>' +
+      '</div>' +
+      (stale ? '<span class="muted" title="Stale data" style="flex-shrink:0;">⚠</span>' : '') +
     '</div>' +
-    '<span class="muted" style="font-size:10.5px;white-space:nowrap;flex-shrink:0;">'+statLine+'</span>' +
-    (stale ? '<span class="muted" title="Stale data" style="flex-shrink:0;">⚠</span>' : '<span style="width:11px;flex-shrink:0;"></span>') +
+    '<div class="muted" style="font-size:10.5px;margin:2px 0 0 24px;overflow-wrap:break-word;">'+statLine+'</div>' +
   '</div>';
 }
 
@@ -8968,16 +8986,16 @@ function renderPriorityZonesDropdown(ranked){
   var maintainRows = maintain.map(function(d,i){
     return priorityBarRow(d, i, 'toMaintainScore', maxMaintain, '#8e5bc0', Math.round(d.score.histCutPct)+'% hist cut · '+d.score.actionCount+' action(s) recorded');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut.</div>';
-  var columns = '<div class="map-flex-row" style="gap:18px;">' +
-    '<div style="flex:1;min-width:0;">' +
+  var columns = '<div class="priority-columns">' +
+    '<div class="priority-column">' +
       '<div style="font-size:12.5px;font-weight:700;color:#2ca02c;margin-bottom:5px;">🌱 TO PLANT — needs planting most</div>' +
       plantRows +
     '</div>' +
-    '<div style="flex:1;min-width:0;">' +
+    '<div class="priority-column">' +
       '<div style="font-size:12.5px;font-weight:700;color:#c9822a;margin-bottom:5px;">🪓 TO CUT — needs first cutting most</div>' +
       cutRows +
     '</div>' +
-    '<div style="flex:1;min-width:0;">' +
+    '<div class="priority-column">' +
       '<div style="font-size:12.5px;font-weight:700;color:#8e5bc0;margin-bottom:5px;">🔁 TO MAINTAIN — mostly cut, least visited</div>' +
       maintainRows +
     '</div>' +
