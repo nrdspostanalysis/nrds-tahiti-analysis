@@ -12,3 +12,35 @@ own sync into Metabase truncates/mangles some column names for this table, and a
 other table (`Espece`) was found to have two columns silently swapped by that sync — verify
 a given column's real meaning against actual values (or the original
 `Habitat Restoration.csv` export) before building anything on top of it.
+
+**2026-08-25 — NRDS template edit broke the sync, fixed without needing admin access.** Marco
+edited the "Habitat Restoration" template on Kilo (see `habitatrestorationchangelog.md`,
+sent to him by browser-Claude): removed 3 questions (`% cleaned at the end of the day` /
+`% cleaned at arrival` / `% evaluation` — the columns behind `surface_that_has_been_cleaned_` /
+`_cleaned_at_arrival` / `_evaluation`), added a new `number_of_hours` question, and renamed the
+`action` option labels from French descriptive text to short codes (`CUTTING` / `MAINTENANCE` /
+`PLANTATION`, retroactive for all historical rows too — NRDS stores the option by ID, not text).
+Metabase's own table-metadata cache still listed the 3 removed columns (schema resync needed to
+notice they're gone, which is an admin-only Metabase action — confirmed via a live 403 on
+`POST /api/database/2/sync_schema` with the "tahiti" API key, `is_superuser: false`), so every
+sync run failed with `column habitat_restoration.surface_that_has_been_cleaned_ does not exist`
+— and since `queryTable()` used to just query "all fields Metabase knows about" implicitly, this
+one broken column blocked the *entire* sync (nothing in `data/*.json` got refreshed at all, not
+just this table, since main() only writes files after every `queryTable()` call succeeds).
+**Fixed in `scripts/sync-metabase.mjs` without needing that admin resync**: `queryTable()` now
+builds an explicit `fields` list from live table metadata and take an `excludeFields` param — the
+Habitat Restoration call passes the 3 dead column names there, so the query never asks for them.
+`index.html`'s `Action` comparisons (`CUTTING_ACTION` and the hardcoded French-label strings
+throughout) were updated to the new short codes; `nrdsRowToHabitatRow()` was updated to stop
+reading the 3 removed columns (harmless — they're just absent from `r` now, existing `?? ''` /
+`|| ''` fallbacks already treat that as "no data" everywhere downstream) and to pass through the
+new `number_of_hours` as `Number_of_Hours` (not consumed by any UI feature yet, same
+staged-for-later pattern as everything else in this folder). **Consequence going forward**: NRDS
+no longer collects a cleaning % for new CUTTING/MAINTENANCE entries at all (replaced by hours
+worked) — every feature that reads `Pct_cleaned_arrival`/`Pct_cleaned_end_of_day` (map cleaning
+layer, combined estimate, dashboard headline stat, etc.) will correctly show "no data" for any
+post-2026-08-25 session, same as it already does for any older row missing that field — not a bug,
+just an honest reflection of what NRDS collects now. If Marco ever wants a UI built around
+`number_of_hours` as a replacement metric, that's a real design decision (what should "combined
+estimate" mean when the underlying metric changed from a % to a headcount×hours figure) — don't
+improvise one without asking.

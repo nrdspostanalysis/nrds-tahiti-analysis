@@ -2422,16 +2422,20 @@ function dbRowToHabitatRow(r){
 // NRDS column names (see data/live/README.md) — this maps them onto the exact same row shape
 // dbRowToHabitatRow produces from Supabase, so every downstream consumer (map, charts, tables,
 // buildEnriched) works unmodified regardless of which source loaded the data.
-// surface_that_has_been_cleaned_ / _cleaned_at_arrival / _evaluation identified by their data shape
-// (2026-08-13: real values are always 0-100 and only populated for cleaning-type Actions, never
-// Plantation; surface_that_has_been_cleaned_ >= _cleaned_at_arrival in ~14/15 sampled rows, consistent
-// with "cleaned by end of day" >= "cleaned at arrival") — Metabase's own column-name truncation lost
-// the actual NRDS field labels, there is no more direct way to confirm this without admin access.
+// surface_that_has_been_cleaned_ / _cleaned_at_arrival / _evaluation were identified by their data
+// shape while they still existed (2026-08-13: real values were always 0-100 and only populated for
+// cleaning-type Actions, never Plantation). 2026-08-25: Marco removed the 3 corresponding questions
+// from the NRDS template entirely (see habitatrestorationchangelog.md) — sync-metabase.mjs now
+// explicitly excludes them from the query, so these keys are simply absent from `r` going forward;
+// `?? ''` here still resolves to the same "no data" empty string every existing consumer already
+// expects, no downstream changes needed. Same commit adds `number_of_hours` (new NRDS question,
+// replaces the % fields for cutting/maintenance sessions) as a raw passthrough — not yet consumed by
+// any UI feature, same "staged for later" pattern as the other data/live/*.json-only fields.
 function nrdsRowToHabitatRow(r){
   return {
     Identifier: String(r.survey_id), Date: (r.date||'').slice(0,10), Name: r.name||'', Valley: r.valle1_vallee||'',
     'Unit Name': r.unit_name_nom||'', Action: r.action||'', 'Type of day work': r.type_of_day_work||'',
-    'Number of Person': r.number_of_person||'',
+    'Number of Person': r.number_of_person||'', 'Number of Hours': r.number_of_hours ?? '',
     'Précision Localisation (rat station name)': r.pr_cision_localisation_rat_st||'',
     '% cleaned at the end of the day': r.surface_that_has_been_cleaned_ ?? '',
     '% cleaned at arrival': r._cleaned_at_arrival ?? '', '% evaluation': r._evaluation ?? '',
@@ -5817,7 +5821,7 @@ function buildEnriched(){
     mainRows.push({
       Identifier: ident, Date: r['Date'], Name: r['Name'], Valley: valley, Unit_Name: unitName,
       Unit_Surface_m2: unitSurface, Action: r['Action'], Type_of_day_work: r['Type of day work'],
-      Number_of_Person: r['Number of Person'], Pct_cleaned_arrival: r['% cleaned at arrival'],
+      Number_of_Person: r['Number of Person'], Number_of_Hours: r['Number of Hours'], Pct_cleaned_arrival: r['% cleaned at arrival'],
       Pct_cleaned_end_of_day: r['% cleaned at the end of the day'], Pct_evaluation: r['% evaluation'],
       Rat_Stations: (resolved.length ? resolved.map(x=>x.code) : codes).join(';'),
       Location_Precision: locPrecision, Centroid_Latitude: centroidLat, Centroid_Longitude: centroidLon,
@@ -6074,8 +6078,8 @@ function onDataUpdated(){
   const cleaningByValleyText = valleyOrder.filter(v => cleaningSummary.byValley[v] != null)
     .map(v => `${v} ${cleaningSummary.byValley[v].toFixed(0)}%`).join(' · ') || 'no data yet';
 
-  const lastCutting = lastActionOfType(mainRows, ['Coupe du sous-bois (cutting undergrowth)', 'Entretien des plantations (cleaning around plantation)']);
-  const lastPlantation = lastActionOfType(mainRows, 'Plantation');
+  const lastCutting = lastActionOfType(mainRows, ['CUTTING', 'MAINTENANCE']);
+  const lastPlantation = lastActionOfType(mainRows, 'PLANTATION');
   const cuttingText = lastCutting
     ? `${escapeHtml(lastCutting.Unit_Name)} (${escapeHtml(lastCutting.Valley)}) — ${lastCutting.Pct_cleaned_end_of_day || '?'}%`
     : '—';
@@ -7274,7 +7278,10 @@ function plantingProjColor(dom, pct){
 // — deliberately overriding that earlier reasoning, not unaware of it (flagged explicitly at the time).
 // CUTTING_ACTION itself is kept only for renderCleaningVsMaintenanceDropdown()'s side-by-side
 // cutting-vs-maintenance comparison, which is a separate, still-valid feature this revert doesn't touch.
-const CUTTING_ACTION = 'Coupe du sous-bois (cutting undergrowth)';
+// 2026-08-25: NRDS's "Action" option labels were renamed on the Kilo template (retroactively,
+// for all historical records too — see habitatrestorationchangelog.md) from the old French
+// descriptive labels to short codes. Old value: 'Coupe du sous-bois (cutting undergrowth)'.
+const CUTTING_ACTION = 'CUTTING';
 // NRDS's Date field is day-granularity only (no time-of-day), so two different actions on the same
 // zone/station on the same day are a real, common case (e.g. a Coupe du sous-bois and an Entretien
 // des plantations logged the same day) — a plain "date > cur.date" comparison can never break that
@@ -9042,7 +9049,7 @@ function valleyFilterSelect(selected, onchangeFn){
 
 function renderLastPlantingDropdown(mainRows){
   const rows = mainRows
-    .filter(r => r.Action === 'Plantation' && r.Date && (lastPlantingValleyFilter==='all' || r.Valley===lastPlantingValleyFilter))
+    .filter(r => r.Action === 'PLANTATION' && r.Date && (lastPlantingValleyFilter==='all' || r.Valley===lastPlantingValleyFilter))
     .sort((a,b) => new Date(b.Date) - new Date(a.Date))
     .slice(0, 15);
   const countLabel = rows.length ? `${rows.length} most recent` : 'no records yet';
@@ -9071,7 +9078,7 @@ function renderLastPlantingDropdown(mainRows){
 }
 
 function renderLastCleaningDropdown(mainRows){
-  const cleaningActions = ['Coupe du sous-bois (cutting undergrowth)', 'Entretien des plantations (cleaning around plantation)'];
+  const cleaningActions = ['CUTTING', 'MAINTENANCE'];
   const rows = mainRows
     .filter(r => cleaningActions.includes(r.Action) && r.Date && (lastCleaningValleyFilter==='all' || r.Valley===lastCleaningValleyFilter))
     .sort((a,b) => new Date(b.Date) - new Date(a.Date))
@@ -9135,11 +9142,11 @@ function renderLastRatLineCleaningDropdown(mainRows){
 // numerically distinct here (same reason the zone cutting estimate above only counts CUTTING_ACTION).
 const CLEANING_CATEGORY_HEX = {
   [CUTTING_ACTION]: '#1f77b4',
-  'Entretien des plantations (cleaning around plantation)': '#e67e22'
+  MAINTENANCE: '#e67e22'
 };
 const CLEANING_CATEGORY_SHORT = {
   [CUTTING_ACTION]: 'Cutting undergrowth',
-  'Entretien des plantations (cleaning around plantation)': 'Plantation maintenance'
+  MAINTENANCE: 'Plantation maintenance'
 };
 function cleaningCategoryStats(action){
   const rows = enriched.mainRows.filter(r => r.Action === action);

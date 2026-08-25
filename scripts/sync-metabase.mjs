@@ -48,17 +48,20 @@ async function fetchWithRetry(url, options, attempts = 3) {
 // {page, items}` clause works correctly (verified: page 2 returns genuinely different rows)
 // and is used instead. Do not switch back to limit/offset without re-verifying against real
 // data first — this may be instance/version-specific, not a general Metabase behavior.
-async function getFieldId(tableId, fieldName) {
+async function getTableMetadata(tableId) {
   const res = await fetchWithRetry(`${BASE_URL}/api/table/${tableId}/query_metadata`, {
     headers: { 'X-API-Key': TOKEN },
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch metadata for table ${tableId}: HTTP ${res.status} ${await res.text()}`);
   }
-  const json = await res.json();
-  const field = json.fields.find((f) => f.name === fieldName);
+  return res.json();
+}
+
+function findField(meta, tableId, fieldName) {
+  const field = meta.fields.find((f) => f.name === fieldName);
   if (!field) throw new Error(`Field "${fieldName}" not found in table ${tableId}`);
-  return field.id;
+  return field;
 }
 
 const MAX_PAGES = 500; // safety cap (500 * 2000 = 1M rows) so a repeat of the offset bug can't hammer the server forever
@@ -67,14 +70,24 @@ const MAX_PAGES = 500; // safety cap (500 * 2000 = 1M rows) so a repeat of the o
 // enough when it's a genuine per-row unique id; child tables where that column repeats per
 // parent (e.g. Dératisation Checks' survey_id is the parent patrol's id, not a unique row id)
 // need a second tiebreaker column passed here too.
-async function queryTable(tableId, label, orderByFields = ['survey_id']) {
+//
+// excludeFields: column names to leave out of the query entirely. Needed because this Metabase
+// instance's "select all columns" default (used when no `fields` clause is given) queries every
+// column its OWN cached table metadata still lists — including one dropped from the underlying
+// Postgres table without a schema resync (admin-only, unavailable to this API key; see
+// data/live/README.md's 2026-08-25 note). Passing an explicit `fields` list that skips the
+// now-missing column(s) avoids ever generating a SELECT for them, sidestepping the stale-cache
+// query failure entirely — no admin resync needed for the sync itself to keep working.
+async function queryTable(tableId, label, orderByFields = ['survey_id'], excludeFields = []) {
   const start = Date.now();
   console.log(`Querying ${label} (table ${tableId})...`);
-  const orderBy = await Promise.all(
-    orderByFields.map(async (name) => [['field', await getFieldId(tableId, name), null], 'asc'])
-  );
+  const meta = await getTableMetadata(tableId);
+  const excludeSet = new Set(excludeFields);
+  const selectFields = meta.fields.filter((f) => !excludeSet.has(f.name));
+  const fields = selectFields.map((f) => ['field', f.id, null]);
+  const orderBy = orderByFields.map((name) => [['field', findField(meta, tableId, name).id, null], 'asc']);
   const rows = [];
-  let cols = null;
+  const cols = selectFields.map((f) => f.name);
   const pageSize = 2000;
   for (let page = 1; ; page++) {
     if (page > MAX_PAGES) {
@@ -90,14 +103,13 @@ async function queryTable(tableId, label, orderByFields = ['survey_id']) {
       body: JSON.stringify({
         database: DATABASE_ID,
         type: 'query',
-        query: { 'source-table': tableId, 'order-by': orderBy, page: { page, items: pageSize } },
+        query: { 'source-table': tableId, fields, 'order-by': orderBy, page: { page, items: pageSize } },
       }),
     });
     if (!res.ok) {
       throw new Error(`Metabase query failed for table ${tableId}: HTTP ${res.status} ${await res.text()}`);
     }
     const json = await res.json();
-    if (!cols) cols = json.data.cols.map((c) => c.name);
     rows.push(...json.data.rows);
     console.log(`  page ${page}: +${json.data.rows.length} rows (${Date.now() - pageStart}ms)`);
     if (json.data.rows.length < pageSize) break;
@@ -240,7 +252,14 @@ async function main() {
   const dr = await queryTable(6981, 'Deratisation');
   const dc = await queryTable(8446, 'Dératisation Checks', ['survey_id', 'derat']);
   const hist = await queryTable(9447, 'Historical Management Units');
-  const hr = await queryTable(6995, 'Habitat Restoration');
+  // 2026-08-25: Marco removed the "% cleaned at the end of the day" / "% cleaned at arrival" /
+  // "% evaluation" questions from the NRDS "Habitat Restoration" template (see
+  // habitatrestorationchangelog.md) — the underlying Postgres columns are gone, but Metabase's
+  // own table-metadata cache still lists them (needs an admin schema resync to update, which
+  // this API key can't do — confirmed via a live 403 on POST /api/database/2/sync_schema).
+  // Excluding them here keeps the sync working without waiting on that resync.
+  const hr = await queryTable(6995, 'Habitat Restoration', ['survey_id'],
+    ['surface_that_has_been_cleaned_', '_cleaned_at_arrival', '_evaluation']);
 
   await writeJson('data/management_unit.json', mapRows(mu, MANAGEMENT_UNIT_MAP));
   await writeJson('data/derat_tahiti.json', mapRows(dt, DERAT_TAHITI_MAP));
