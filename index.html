@@ -6079,7 +6079,7 @@ function onDataUpdated(){
     <div class="stat"><div class="num">${cleaningSummary.overall != null ? cleaningSummary.overall.toFixed(0)+'%' : '—'}</div><div class="lbl">area-weighted cleaning %</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${cleaningByValleyText}</div></div>
     <div class="stat"><div class="num" style="font-size:15px;">${cuttingText}</div><div class="lbl">last cleaning action (cutting / entretien): zone, valley & % cleaned</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${plantationText}</div></div>
   </div>`;
-  let priorityRanked = { plant: [], clean: [] };
+  let priorityRanked = { plant: [], cut: [], maintain: [] };
   let priorityHtml = '';
   try {
     priorityRanked = priorityZonesRanked(20, includeStaleInPriority);
@@ -8805,11 +8805,21 @@ function haversineKm(lat1, lon1, lat2, lon2){
   return 2*R*Math.asin(Math.sqrt(a));
 }
 
-// Home-page "where to work next" widget: two independent rankings (not blended into one
-// score) — TO PLANT (zones most needing new plantings) and TO CLEAN (zones most needing
-// undergrowth cutting). computeZoneScores() computes both per zone; priorityZonesRanked()
-// sorts and slices each list separately.
+// Home-page "where to work next" widget: three independent rankings (never blended into one
+// score) — TO PLANT (zones most needing new plantings), TO CUT (zones most needing initial
+// undergrowth cutting, weighted against workforce effort already invested), and TO MAINTAIN
+// (zones that are historically mostly-cut but have gone longest without any recorded visit —
+// at risk of relapsing untended). computeZoneScores() computes all three per zone;
+// priorityZonesRanked() sorts/filters/slices each list separately.
 const PLANT_ACTIVITY_HALFLIFE = 30; // individuals planted since baseline at which TO PLANT priority halves
+// person-days (headcount × session — NRDS has no hours-worked field, see renderWorkforce()'s own
+// "person-days" framing) of recorded Coupe du sous-bois effort in a zone at which TO CUT priority
+// halves — a reasoned, adjustable assumption, same style as PLANT_ACTIVITY_HALFLIFE above.
+const CUT_ACTIVITY_HALFLIFE = 15;
+// TO MAINTAIN only considers zones whose historical sous-bois record already shows this much
+// progress or more — below this threshold a zone still needs first-pass cutting (TO CUT's job),
+// not maintenance.
+const MAINTAIN_HIST_THRESHOLD = 70;
 function computeZoneScores(d, pastLookup, unitGeomMap){
   try {
     var hu = pastLookup.get(d.valley+'||'+d.unit);
@@ -8825,7 +8835,6 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
       nrdsPctAdd = Math.min(100 - histPct, (areaEquivHa / areaHa) * 100);
     }
     var projPct = Math.min(100, histPct + nrdsPctAdd) / 100;
-    var cleanFrac = d.res.estimate / 100;
     var domWeightMap = { A:0.2, 'A*':0.4, B:0.8, C:1.0, X:0.0 };
     var domWeight = domWeightMap[topo.type] !== undefined ? domWeightMap[topo.type] : 0;
     var nrdsCount = recent ? recent.totalIndividuals : 0;
@@ -8842,13 +8851,33 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
     // a zone where NRDS has already planted a lot recently also ranks lower, even if the % gain
     // from that effort was diluted by a large zone area.
     var toPlantScore = (1 - projPct) * domWeight * activityDiscount;
-    // TO CLEAN: high when a zone already has plantings AND is dirty — existing plantings at
-    // risk of being smothered by regrowth. Same formula as the old "habitat_risk" term.
-    var toCleanScore = projPct * (1 - cleanFrac);
+
+    var hvCut = latestHistValue(hu, SB_WEIGHTS, 'SB');
+    var histCutPct = hvCut ? (hvCut.pct || 0) : 0;
+    var zoneActions = enriched.mainRows.filter(function(r){ return r.Unit_Name === d.unit; });
+    var personDaysCut = zoneActions.filter(function(r){ return r.Action === CUTTING_ACTION; })
+      .reduce(function(sum, r){ return sum + (+r.Number_of_Person || 0); }, 0);
+    var actionCount = zoneActions.length;
+    // TO CUT: high when a zone's historical undergrowth-clearing record is still low AND little
+    // workforce effort has gone into cutting it so far — same shape as TO PLANT (deficit ×
+    // discount for effort already spent), but effort here is person-days of recorded Coupe du
+    // sous-bois work rather than individuals planted.
+    var cutActivityDiscount = Math.pow(0.5, personDaysCut / CUT_ACTIVITY_HALFLIFE);
+    var toCutScore = (1 - histCutPct/100) * cutActivityDiscount;
+
+    // TO MAINTAIN: not a continuous score blended with the other two — a filtered list. Only
+    // zones already mostly cut historically (> MAINTAIN_HIST_THRESHOLD%) qualify at all (below
+    // that, TO CUT is the relevant list); among those, the ones NRDS has visited least often rank
+    // highest — a zone reported as basically done years ago that nobody has been back to since is
+    // the one most likely to have silently regrown untended.
+    var maintainEligible = histCutPct > MAINTAIN_HIST_THRESHOLD;
+    var toMaintainScore = maintainEligible ? 1/(1+actionCount) : 0;
+
     return { projPct:projPct, histPct:histPct, nrdsPctAdd:nrdsPctAdd,
              nrdsCount:nrdsCount, activityDiscount:activityDiscount,
-             topoType:topo.type, domWeight:domWeight,
-             toPlantScore:toPlantScore, toCleanScore:toCleanScore };
+             topoType:topo.type, domWeight:domWeight, toPlantScore:toPlantScore,
+             histCutPct:histCutPct, personDaysCut:personDaysCut, cutActivityDiscount:cutActivityDiscount, toCutScore:toCutScore,
+             actionCount:actionCount, maintainEligible:maintainEligible, toMaintainScore:toMaintainScore };
   } catch(e){ return null; }
 }
 
@@ -8856,7 +8885,7 @@ function priorityZonesRanked(n, includeStale){
   var data = zonePriorityData('all', true).filter(function(d){ return d.res.estimate != null; });
   if (!includeStale) data = data.filter(function(d){ return !(d.lastDays != null && d.lastDays > STALE_DAYS); });
   if (priorityValleyFilter !== 'all') data = data.filter(function(d){ return d.valley === priorityValleyFilter; });
-  if (!data.length) return { plant: [], clean: [] };
+  if (!data.length) return { plant: [], cut: [], maintain: [] };
 
   var pastLookup = pastUnitLookupMap();
   var unitGeomMap = new Map();
@@ -8875,8 +8904,10 @@ function priorityZonesRanked(n, includeStale){
 
   var scored = data.filter(function(d){ return d.score; });
   var plant = scored.slice().sort(function(a,b){ return b.score.toPlantScore - a.score.toPlantScore; }).slice(0, n);
-  var clean = scored.slice().sort(function(a,b){ return b.score.toCleanScore - a.score.toCleanScore; }).slice(0, n);
-  return { plant: plant, clean: clean };
+  var cut = scored.slice().sort(function(a,b){ return b.score.toCutScore - a.score.toCutScore; }).slice(0, n);
+  var maintain = scored.filter(function(d){ return d.score.maintainEligible; })
+    .sort(function(a,b){ return a.score.actionCount - b.score.actionCount; }).slice(0, n);
+  return { plant: plant, cut: cut, maintain: maintain };
 }
 
 // default true: a zone whose only data is an aging historical survey (no recent NRDS visit) is
@@ -8919,34 +8950,42 @@ function renderPriorityZonesDropdown(ranked){
     staleToggle + '</div>';
   var openAttr = priorityDetailsOpen ? 'open' : '';
   var toggleAttr = 'ontoggle="priorityDetailsOpen=this.open;document.getElementById(\'priorityCalcBox\').style.display=this.open?\'\':\''+'none\'"';
-  var plant = ranked.plant || [], clean = ranked.clean || [];
-  if (!plant.length && !clean.length){
+  var plant = ranked.plant || [], cut = ranked.cut || [], maintain = ranked.maintain || [];
+  if (!plant.length && !cut.length && !maintain.length){
     return '<details style="margin-top:10px;" '+openAttr+' '+toggleAttr+'>' +
-      '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting &amp; cleaning</summary>' +
+      '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting, cutting &amp; maintenance</summary>' +
       '<div style="margin-top:8px;">'+controls+'<div class="muted">No zone with data for selected valley.</div></div></details>';
   }
   var maxPlant = plant.length ? plant[0].score.toPlantScore : 0;
-  var maxClean = clean.length ? clean[0].score.toCleanScore : 0;
+  var maxCut = cut.length ? cut[0].score.toCutScore : 0;
+  var maxMaintain = maintain.length ? maintain[0].score.toMaintainScore : 0;
   var plantRows = plant.map(function(d,i){
     return priorityBarRow(d, i, 'toPlantScore', maxPlant, '#2ca02c', Math.round(d.score.projPct*100)+'% pl · type '+d.score.topoType+' · '+d.score.nrdsCount+' ind.');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone with data.</div>';
-  var cleanRows = clean.map(function(d,i){
-    return priorityBarRow(d, i, 'toCleanScore', maxClean, '#4a90d9', Math.round(d.score.projPct*100)+'% pl · '+d.res.estimate.toFixed(0)+'% cl · type '+d.score.topoType);
+  var cutRows = cut.map(function(d,i){
+    return priorityBarRow(d, i, 'toCutScore', maxCut, '#c9822a', Math.round(d.score.histCutPct)+'% hist cut · '+d.score.personDaysCut.toFixed(0)+' person-days');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone with data.</div>';
+  var maintainRows = maintain.map(function(d,i){
+    return priorityBarRow(d, i, 'toMaintainScore', maxMaintain, '#8e5bc0', Math.round(d.score.histCutPct)+'% hist cut · '+d.score.actionCount+' action(s) recorded');
+  }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut.</div>';
   var columns = '<div class="map-flex-row" style="gap:18px;">' +
     '<div style="flex:1;min-width:0;">' +
       '<div style="font-size:12.5px;font-weight:700;color:#2ca02c;margin-bottom:5px;">🌱 TO PLANT — needs planting most</div>' +
       plantRows +
     '</div>' +
     '<div style="flex:1;min-width:0;">' +
-      '<div style="font-size:12.5px;font-weight:700;color:#4a90d9;margin-bottom:5px;">🧹 TO CLEAN — needs cleaning most</div>' +
-      cleanRows +
+      '<div style="font-size:12.5px;font-weight:700;color:#c9822a;margin-bottom:5px;">🪓 TO CUT — needs first cutting most</div>' +
+      cutRows +
+    '</div>' +
+    '<div style="flex:1;min-width:0;">' +
+      '<div style="font-size:12.5px;font-weight:700;color:#8e5bc0;margin-bottom:5px;">🔁 TO MAINTAIN — mostly cut, least visited</div>' +
+      maintainRows +
     '</div>' +
   '</div>';
   return '<details style="margin-top:10px;" '+openAttr+' '+toggleAttr+'>' +
-    '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting &amp; cleaning (click to expand)</summary>' +
+    '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting, cutting &amp; maintenance (click to expand)</summary>' +
     '<div style="margin-top:8px;">'+controls +
-    '<div class="muted" style="margin-bottom:8px;">Top '+Math.max(plant.length,clean.length)+' each · two independent rankings, never blended</div>' +
+    '<div class="muted" style="margin-bottom:8px;">Top '+Math.max(plant.length,cut.length,maintain.length)+' each (TO MAINTAIN filtered to zones &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut) · three independent rankings, never blended</div>' +
     columns + '</div></details>';
 }
 
@@ -9158,14 +9197,16 @@ function renderCleaningVsMaintenanceDropdown(){
 }
 
 function renderPriorityCalcBox(ranked){
-  var plant = ranked.plant || [], clean = ranked.clean || [];
-  var html = '<b>Priority zones — two independent rankings</b><br><br>' +
+  var plant = ranked.plant || [], cut = ranked.cut || [], maintain = ranked.maintain || [];
+  var html = '<b>Priority zones — three independent rankings</b><br><br>' +
     '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort.<br>' +
-    '<b>🧹 TO CLEAN score</b> = proj_planting% × (1 − cleaning%) — high when a zone already has plantings <i>and</i> is dirty (existing plantings at risk of being smothered by regrowth).<br><br>' +
+    '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far.<br>' +
+    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. Not a continuous score blended with the other two — a filtered, sorted list.<br><br>' +
     '<b>Typology weights</b> (TO PLANT only): C=1.0 · B=0.8 · A*=0.4 · A=0.2 · X=0 — an unplanted zone that\'s already native-dominant (natural regen under way) ranks low; unplanted + invasive-dominant ranks highest.<br>' +
-    '<b>Activity discount</b> (TO PLANT only): <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code> — halves the score every '+PLANT_ACTIVITY_HALFLIFE+' individuals NRDS has planted in that zone since the historical baseline. Corrects for proj_planting% understating effort in large zones, where a real planting session barely moves the area-normalized %.<br>' +
-    '<b>Inputs:</b> proj_planting% from Butaud historical survey + NRDS individuals @ '+nrdsDensityPerHa+' trees/ha; cleaning% from the combined historical+NRDS estimate, per-species τ editable in that estimate\'s own calc box on the map (same number shown on the map).<br>' +
-    'The two scores are <b>never blended</b> — a zone can rank high on one, both, or neither.<br><br>';
+    '<b>Activity discount</b> (TO PLANT): <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code> — halves every '+PLANT_ACTIVITY_HALFLIFE+' individuals NRDS has planted in that zone since the historical baseline. Corrects for proj_planting% understating effort in large zones, where a real planting session barely moves the area-normalized %.<br>' +
+    '<b>Activity discount</b> (TO CUT): <code>0.5 ^ (person_days_cutting / '+CUT_ACTIVITY_HALFLIFE+')</code> — halves every '+CUT_ACTIVITY_HALFLIFE+' person-days (headcount × session) of recorded Coupe du sous-bois work in that zone. NRDS has no hours-worked field, so person-days — already used the same way in the "People involved" chart — is the closest available proxy for effort.<br>' +
+    '<b>Inputs:</b> proj_planting% and historical_sous_bois% both from the Butaud historical survey; NRDS individuals @ '+nrdsDensityPerHa+' trees/ha (TO PLANT) and Number of Person on Coupe du sous-bois rows (TO CUT).<br>' +
+    'These three lists are <b>never blended</b> — a zone can rank high on one, several, or none.<br><br>';
   if (!plant.length){
     html += '<b>🌱 TO PLANT ranking</b><div class="muted" style="margin:4px 0 10px;">No zone with data.</div>';
   } else {
@@ -9178,14 +9219,25 @@ function renderPriorityCalcBox(ranked){
     });
     html += '</tbody></table></div>';
   }
-  if (!clean.length){
-    html += '<b>🧹 TO CLEAN ranking</b><div class="muted" style="margin:4px 0 10px;">No zone with data.</div>';
+  if (!cut.length){
+    html += '<b>🪓 TO CUT ranking</b><div class="muted" style="margin:4px 0 10px;">No zone with data.</div>';
   } else {
-    html += '<b>🧹 TO CLEAN ranking</b><div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
-      '<th>#</th><th>Unit</th><th>Score</th><th>Proj%</th><th>Clean%</th><th>Type</th></tr></thead><tbody>';
-    clean.forEach(function(d,i){
-      html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td><td><b>'+d.score.toCleanScore.toFixed(3)+'</b></td>' +
-        '<td>'+Math.round(d.score.projPct*100)+'%</td><td>'+d.res.estimate.toFixed(0)+'%</td><td>'+escapeHtml(d.score.topoType)+'</td></tr>';
+    html += '<b>🪓 TO CUT ranking</b><div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
+      '<th>#</th><th>Unit</th><th>Score</th><th>Hist cut%</th><th>Person-days</th><th>Discount</th></tr></thead><tbody>';
+    cut.forEach(function(d,i){
+      html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td><td><b>'+d.score.toCutScore.toFixed(3)+'</b></td>' +
+        '<td>'+Math.round(d.score.histCutPct)+'%</td><td>'+d.score.personDaysCut.toFixed(0)+'</td><td>×'+d.score.cutActivityDiscount.toFixed(2)+'</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+  if (!maintain.length){
+    html += '<b>🔁 TO MAINTAIN ranking</b><div class="muted" style="margin:4px 0 10px;">No zone &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut.</div>';
+  } else {
+    html += '<b>🔁 TO MAINTAIN ranking</b><div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
+      '<th>#</th><th>Unit</th><th>Hist cut%</th><th>Actions recorded</th></tr></thead><tbody>';
+    maintain.forEach(function(d,i){
+      html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td>' +
+        '<td>'+Math.round(d.score.histCutPct)+'%</td><td>'+d.score.actionCount+'</td></tr>';
     });
     html += '</tbody></table></div>';
   }
