@@ -9157,6 +9157,9 @@ function renderPriorityZonesDropdown(ranked){
 let lastPlantingValleyFilter = 'all';
 let lastCleaningValleyFilter = 'all';
 let lastCleaningZoneFilter = new Set(); // empty = all zones within the selected valley
+// Without this, every filter change re-renders the whole home page and the <details> element is
+// recreated fresh (closed by default) — same open/close persistence pattern as priorityDetailsOpen.
+let lastCleaningDetailsOpen = false;
 let lastRatLineCleaningValleyFilter = 'all';
 function setLastPlantingValley(v){ lastPlantingValleyFilter = v; onDataUpdated(); }
 function setLastCleaningValley(v){ lastCleaningValleyFilter = v; lastCleaningZoneFilter = new Set(); onDataUpdated(); }
@@ -9267,7 +9270,7 @@ function renderLastCleaningDropdown(mainRows){
     (anyMissingHours ? `<div class="muted" style="font-size:11px;margin-top:4px;">* hours not recorded for this session (before NRDS added "Number of hours" on 2026-08-25) — estimated at ${HOURS_PER_DAY_FALLBACK}h/person.</div>` : '')
     : `<div class="muted" style="padding:8px 10px;">No cleaning actions recorded yet.</div>`;
 
-  return `<details style="margin-top:8px;">
+  return `<details style="margin-top:8px;" ${lastCleaningDetailsOpen?'open':''} ontoggle="lastCleaningDetailsOpen=this.open">
     <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🧹 Last cleaning actions (${countLabel})</summary>
     <div style="margin-top:8px;">${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}</div>
   </details>`;
