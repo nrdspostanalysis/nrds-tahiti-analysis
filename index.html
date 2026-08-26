@@ -1866,6 +1866,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
         Combined current estimate (historical + NRDS, recency-weighted)
       </label>
     </div>
+    <div id="hoursRateBox"></div>
     <div class="row" id="plantingHistRow" style="margin-bottom:12px;display:none;">
       <span class="muted">Historical data (from "4. Temporal trends"):</span>
       <label class="muted">
@@ -8076,6 +8077,7 @@ function renderMap(shouldFit){
   if (!enriched){ document.getElementById('mapStatus').textContent = 'Generate the enriched datasets first.'; return; }
   document.getElementById('mapStatus').textContent = '';
   document.getElementById('mapContainer').style.display = '';
+  document.getElementById('hoursRateBox').innerHTML = mapLayers.has('cleaning') ? renderHoursRateBox() : '';
   ensureMap();
   leafletMap.invalidateSize();
 
@@ -9561,6 +9563,34 @@ function nrdsCuttingHoursSince(unitName, cutoffDate){
   return { totalPersonHours, latestDate, actionsCount: actions.length };
 }
 
+// Person-hours → % rate box: shown as soon as the "Cleaning status by zone" map layer is picked
+// (see renderMap()'s call into #hoursRateBox), not gated behind the "Combined current estimate"
+// checkbox — the hours fallback now also feeds the plain "NRDS only" layer and the home dashboard
+// stat cards via latestUnitStatus() itself, so the rate needs to be reachable without turning that
+// checkbox on.
+function renderHoursRateBox(){
+  return `<div style="background:#f7faf6;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;">
+    <b>Person-hours → % (NRDS side, hours-based fallback) — editable per vegetation type:</b> since 2026-08-25 NRDS
+    collects "Number of hours" instead of a cleaning %, so a zone with no station/zone-level % reading left to
+    fall back on gets its NRDS % estimated from cumulative person-hours of CUTTING/MAINTENANCE work
+    (hours × headcount, older pre-08-25 sessions counted as ${HOURS_PER_DAY_FALLBACK}h/person each)
+    divided by the zone's area and the clearing rate for its dominant vegetation (native/invasive/unknown,
+    same dominance lookup as the τ/typology logic in the "Combined current estimate" calc box). <b>Added on top of
+    the historical %, not a standalone reading</b> — hours measure progress made, not the zone's whole
+    state, so the increment is capped at <code>100% − historical%</code> before adding (same rule
+    TO PLANT's own nrdsPctAdd already uses for individuals-planted): a zone the historical survey
+    already called "effectuee" (100%) that gets one more logged session stays at ~100%, it doesn't
+    reset to whatever fraction that one session's hours alone would imply. Marco's reference
+    (2026-08-26): one average person clears ~50 m² in 1 hour → 200 person-hours/ha baseline; real
+    clearing speed varies by vegetation density, hence the 3 separate rates below (all start equal
+    to that one reference until field experience splits them further).<br>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;">
+      <label class="muted">Native-dominant: <input type="number" id="hoursRateNativeInput" value="${PERSON_HOURS_PER_HA_NATIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('native', this.value)"> person-h/ha</label>
+      <label class="muted">Invasive-dominant: <input type="number" id="hoursRateInvasiveInput" value="${PERSON_HOURS_PER_HA_INVASIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('invasive', this.value)"> person-h/ha</label>
+      <label class="muted">Default (other/unknown): <input type="number" id="hoursRateDefaultInput" value="${PERSON_HOURS_PER_HA_DEFAULT}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('default', this.value)"> person-h/ha</label>
+    </div>
+  </div>`;
+}
 // Shared calculation-box renderer for both the map overlay and the past-data table toggle —
 // shows the formula plus a per-unit breakdown so the blending isn't a black box.
 function renderCombinedCalcBox(breakdown){
@@ -9575,27 +9605,6 @@ function renderCombinedCalcBox(breakdown){
       <label class="muted">Miconia: <input type="number" id="tauMiconiaInput" value="${RECENCY_TAU_MICONIA_DAYS}" min="1" max="3650" step="1" style="width:60px;padding:2px 5px;" onchange="onTauChange('miconia', this.value)"> days</label>
       <label class="muted">Spathodea: <input type="number" id="tauSpathodeaInput" value="${RECENCY_TAU_SPATHODEA_DAYS}" min="1" max="3650" step="1" style="width:60px;padding:2px 5px;" onchange="onTauChange('spathodea', this.value)"> days</label>
       <label class="muted">Default (other/unknown): <input type="number" id="tauDefaultInput" value="${RECENCY_TAU_DEFAULT_DAYS}" min="1" max="3650" step="1" style="width:60px;padding:2px 5px;" onchange="onTauChange('default', this.value)"> days</label>
-    </div>
-  </div>
-  <div style="background:#f7faf6;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;">
-    <b>Person-hours → % (NRDS side, hours-based fallback) — editable per vegetation type:</b> since 2026-08-25 NRDS
-    collects "Number of hours" instead of a cleaning %, so a zone with no station/zone-level % reading left to
-    fall back on (see table below) instead gets its NRDS % estimated from cumulative person-hours of
-    CUTTING/MAINTENANCE work (hours × headcount, older pre-08-25 sessions counted as ${HOURS_PER_DAY_FALLBACK}h/person
-    each) divided by the zone's area and the clearing rate for its dominant vegetation (same
-    native/invasive dominance already used for the τ/typology logic above). <b>Added on top of the
-    historical %, not a standalone reading</b> — hours measure progress made, not the zone's whole
-    state, so the increment is capped at <code>100% − historical%</code> before adding (same rule
-    TO PLANT's own nrdsPctAdd already uses for individuals-planted): a zone the historical survey
-    already called "effectuee" (100%) that gets one more logged session stays at ~100%, it doesn't
-    reset to whatever fraction that one session's hours alone would imply. Marco's reference
-    (2026-08-26): one average person clears ~50 m² in 1 hour → 200 person-hours/ha baseline; real
-    clearing speed varies by vegetation density, hence the 3 separate rates below (all start equal
-    to that one reference until field experience splits them further).<br>
-    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;">
-      <label class="muted">Native-dominant: <input type="number" id="hoursRateNativeInput" value="${PERSON_HOURS_PER_HA_NATIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('native', this.value)"> person-h/ha</label>
-      <label class="muted">Invasive-dominant: <input type="number" id="hoursRateInvasiveInput" value="${PERSON_HOURS_PER_HA_INVASIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('invasive', this.value)"> person-h/ha</label>
-      <label class="muted">Default (other/unknown): <input type="number" id="hoursRateDefaultInput" value="${PERSON_HOURS_PER_HA_DEFAULT}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('default', this.value)"> person-h/ha</label>
     </div>
   </div>
   <b>How the "Combined current estimate" (cleaning / understory) is calculated:</b>
