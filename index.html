@@ -7455,6 +7455,23 @@ let mapValleyFilter = 'all';
 let mapLayers = new Set(); // which data layers are currently shown — one or more at once
 let mapLayersDropdownOpen = false;
 let nrdsDensityPerHa = 1111;
+// Person-hours of CUTTING/MAINTENANCE effort assumed needed to fully clear one hectare of
+// undergrowth (0% -> 100%), used to convert NRDS's "Number of hours" question into an
+// area-normalized % — same technique as nrdsDensityPerHa converts individuals-planted into a %.
+// Marco's reference (2026-08-26): one average person clears ~50 m² in 1 hour → 10,000/50 = 200
+// person-hours/ha as the baseline. Clearing speed depends on the zone's dominant vegetation
+// (denser invasive undergrowth is harder to cut through than native), so — same pattern as the
+// per-genus τ constants — this is 3 separate editable values by zone dominance (native/invasive/
+// unknown), all defaulting to the one reference number Marco gave until he has type-specific
+// field experience to split them further.
+let PERSON_HOURS_PER_HA_NATIVE = 200;
+let PERSON_HOURS_PER_HA_INVASIVE = 200;
+let PERSON_HOURS_PER_HA_DEFAULT = 200;
+// NRDS's "Number of hours" question only exists on sessions logged from 2026-08-25 on (see
+// data/live/README.md) — older CUTTING/MAINTENANCE sessions have no hours value at all. Marco's
+// chosen fallback (2026-08-25): count each such session as this many hours of work per person,
+// so historical NRDS activity isn't silently dropped from the hours-based estimate.
+const HOURS_PER_DAY_FALLBACK = 6;
 let showStationsOverlay = false;
 let showRatLines = false;
 let showZoneNames = false;
@@ -7989,6 +8006,22 @@ function toggleHistPlantingActivity(checked){
 function onNrdsDensityChange(val){
   const n = parseInt(val, 10);
   if (isFinite(n) && n > 0){ nrdsDensityPerHa = n; renderMap(false); }
+}
+function onHoursRateChange(dominance, val){
+  const n = parseFloat(val);
+  if (!isFinite(n) || n <= 0) return;
+  if (dominance === 'native') PERSON_HOURS_PER_HA_NATIVE = n;
+  else if (dominance === 'invasive') PERSON_HOURS_PER_HA_INVASIVE = n;
+  else PERSON_HOURS_PER_HA_DEFAULT = n;
+  onDataUpdated();
+}
+// Picks the person-hours/ha clearing rate for a zone by its dominant vegetation (native/invasive/
+// unknown) — same dominance lookup zoneTauDays() already uses for the recency τ.
+function personHoursPerHaForZone(hu){
+  const vd = latestVegDominance(hu);
+  if (vd && vd.dominance === 'native') return PERSON_HOURS_PER_HA_NATIVE;
+  if (vd && vd.dominance === 'invasive') return PERSON_HOURS_PER_HA_INVASIVE;
+  return PERSON_HOURS_PER_HA_DEFAULT;
 }
 // τ inputs live in renderCombinedCalcBox() but affect the Combined Cleaning Estimate everywhere it's
 // used (map, home-dashboard TO PLANT/TO CLEAN priority rankings, Temporal Trends zone priority) — a
@@ -8760,9 +8793,31 @@ function combinedCleaningEstimate(hu, unitName, fallbackSt){
     nrdsPct = fallbackSt.pct; daysNrds = daysBetween(today, new Date(fallbackSt.date)); usedFallback = true;
   }
 
+  // 2026-08-25: NRDS stopped collecting any cleaning % at all (the fields behind agg/fallbackSt
+  // are gone from the source — see data/live/README.md), so for any zone with no OLD % reading
+  // left to fall back on, nrdsPct is still null here. Third tier: estimate % from person-hours of
+  // CUTTING/MAINTENANCE effort recorded, area-normalized via a per-vegetation-dominance clearing
+  // rate (same technique as the TO PLANT projection's nrdsDensityPerHa) — a zone with no
+  // geometry/area on file can't be normalized this way and is left with no NRDS-side data, same
+  // as before.
+  let usedHoursFallback = false, hoursInfo = null, hoursRateUsed = null;
+  if (nrdsPct == null){
+    const u = (tables.managementUnit||[]).find(x => x['Nom'] === unitName);
+    const areaHa = u ? zoneAreaHectares(u['Geometry']) : null;
+    const activity = nrdsCuttingHoursSince(unitName, null);
+    const rate = personHoursPerHaForZone(hu);
+    if (activity && areaHa && rate > 0){
+      nrdsPct = Math.min(100, (activity.totalPersonHours / rate / areaHa) * 100);
+      daysNrds = daysBetween(today, new Date(activity.latestDate));
+      usedHoursFallback = true;
+      hoursRateUsed = rate;
+      hoursInfo = activity;
+    }
+  }
+
   const wHistRaw = hv ? Math.exp(-daysHist / tau) : 0;
   let wNrdsRaw = nrdsPct != null ? Math.exp(-daysNrds / tau) : 0;
-  if (!usedFallback && coverage != null) wNrdsRaw *= coverage; // sparse station coverage = less confidence
+  if (!usedFallback && !usedHoursFallback && coverage != null) wNrdsRaw *= coverage; // sparse station coverage = less confidence
   const wSum = wHistRaw + wNrdsRaw;
   let estimate = null, wHistPct = null, wNrdsPct = null;
   if (hv && nrdsPct != null){
@@ -8776,6 +8831,7 @@ function combinedCleaningEstimate(hu, unitName, fallbackSt){
   const st = nrdsPct != null ? { pct: nrdsPct } : null;
   return { estimate, hv, st, daysHist, daysNrds, wHistPct, wNrdsPct,
     stationsTotal: agg.totalStations, stationsWithData: agg.withData, coverage, usedFallback,
+    usedHoursFallback, hoursInfo, hoursRateUsed,
     tau, tauLabel: tauInfo.label };
 }
 function pastUnitLookupMap(){
@@ -9437,6 +9493,27 @@ function nrdsPlantingActivitySince(unitName, cutoffDate){
   return { totalIndividuals, latestDate, actionsCount: actions.length, species };
 }
 
+// Cumulative person-hours of cutting/maintenance effort recorded for a zone — person-hours, not
+// raw hours, since a 5-person session clears far more ground than a solo one: real Number_of_Hours
+// (from 2026-08-25 on) × Number_of_Person, or HOURS_PER_DAY_FALLBACK × Number_of_Person for older
+// sessions that predate the "Number of hours" question. Feeds combinedCleaningEstimate()'s
+// hours-based fallback below.
+function nrdsCuttingHoursSince(unitName, cutoffDate){
+  const actions = enriched.mainRows.filter(r =>
+    r.Unit_Name === unitName && (r.Action === 'CUTTING' || r.Action === 'MAINTENANCE') &&
+    (!cutoffDate || new Date(r.Date) > cutoffDate));
+  if (!actions.length) return null;
+  let totalPersonHours = 0;
+  for (const r of actions){
+    const h = +r.Number_of_Hours;
+    const hours = (isFinite(h) && h > 0) ? h : HOURS_PER_DAY_FALLBACK;
+    const people = +r.Number_of_Person || 1;
+    totalPersonHours += hours * people;
+  }
+  const latestDate = actions.reduce((max, r) => r.Date > max ? r.Date : max, actions[0].Date);
+  return { totalPersonHours, latestDate, actionsCount: actions.length };
+}
+
 // Shared calculation-box renderer for both the map overlay and the past-data table toggle —
 // shows the formula plus a per-unit breakdown so the blending isn't a black box.
 function renderCombinedCalcBox(breakdown){
@@ -9451,6 +9528,22 @@ function renderCombinedCalcBox(breakdown){
       <label class="muted">Miconia: <input type="number" id="tauMiconiaInput" value="${RECENCY_TAU_MICONIA_DAYS}" min="1" max="3650" step="1" style="width:60px;padding:2px 5px;" onchange="onTauChange('miconia', this.value)"> days</label>
       <label class="muted">Spathodea: <input type="number" id="tauSpathodeaInput" value="${RECENCY_TAU_SPATHODEA_DAYS}" min="1" max="3650" step="1" style="width:60px;padding:2px 5px;" onchange="onTauChange('spathodea', this.value)"> days</label>
       <label class="muted">Default (other/unknown): <input type="number" id="tauDefaultInput" value="${RECENCY_TAU_DEFAULT_DAYS}" min="1" max="3650" step="1" style="width:60px;padding:2px 5px;" onchange="onTauChange('default', this.value)"> days</label>
+    </div>
+  </div>
+  <div style="background:#f7faf6;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;">
+    <b>Person-hours → % (NRDS side, hours-based fallback) — editable per vegetation type:</b> since 2026-08-25 NRDS
+    collects "Number of hours" instead of a cleaning %, so a zone with no station/zone-level % reading left to
+    fall back on (see table below) instead gets its NRDS % estimated from cumulative person-hours of
+    CUTTING/MAINTENANCE work (hours × headcount, older pre-08-25 sessions counted as ${HOURS_PER_DAY_FALLBACK}h/person
+    each) divided by the zone's area and the clearing rate for its dominant vegetation (same
+    native/invasive dominance already used for the τ/typology logic above). Marco's reference
+    (2026-08-26): one average person clears ~50 m² in 1 hour → 200 person-hours/ha baseline; real
+    clearing speed varies by vegetation density, hence the 3 separate rates below (all start equal
+    to that one reference until field experience splits them further).<br>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;">
+      <label class="muted">Native-dominant: <input type="number" id="hoursRateNativeInput" value="${PERSON_HOURS_PER_HA_NATIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('native', this.value)"> person-h/ha</label>
+      <label class="muted">Invasive-dominant: <input type="number" id="hoursRateInvasiveInput" value="${PERSON_HOURS_PER_HA_INVASIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('invasive', this.value)"> person-h/ha</label>
+      <label class="muted">Default (other/unknown): <input type="number" id="hoursRateDefaultInput" value="${PERSON_HOURS_PER_HA_DEFAULT}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('default', this.value)"> person-h/ha</label>
     </div>
   </div>
   <b>How the "Combined current estimate" (cleaning / understory) is calculated:</b>
@@ -9488,6 +9581,7 @@ function renderCombinedCalcBox(breakdown){
       const tauTxt = r.tau != null ? `${r.tau}d (${r.tauLabel})` : '—';
       const histTxt = r.hv ? `${r.hv.raw} (${r.hv.pct}%, ${HIST_PERIOD_LABEL[r.hv.period]}, ${r.daysHist.toFixed(0)}d ago)` : '—';
       const nrdsTxt = !r.st ? '—'
+        : r.usedHoursFallback ? `${r.st.pct.toFixed(0)}% (from ${r.hoursInfo.totalPersonHours.toFixed(0)} person-hours @ ${r.hoursRateUsed} p-h/ha over ${r.hoursInfo.actionsCount} session(s), ${r.daysNrds.toFixed(0)}d ago)`
         : r.usedFallback ? `${r.st.pct}% (single action, no station resolved, ${r.daysNrds.toFixed(0)}d ago)`
         : `${r.st.pct.toFixed(0)}% (${r.stationsWithData}/${r.stationsTotal} stations, ${(r.coverage*100).toFixed(0)}% coverage, avg ${r.daysNrds.toFixed(0)}d ago)`;
       html += `<tr><td>${b.unit}</td><td>${b.valley}</td><td>${tauTxt}</td><td>${histTxt}</td><td>${r.wHistPct.toFixed(0)}%</td>` +

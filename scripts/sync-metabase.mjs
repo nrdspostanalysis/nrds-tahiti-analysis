@@ -78,11 +78,22 @@ const MAX_PAGES = 500; // safety cap (500 * 2000 = 1M rows) so a repeat of the o
 // data/live/README.md's 2026-08-25 note). Passing an explicit `fields` list that skips the
 // now-missing column(s) avoids ever generating a SELECT for them, sidestepping the stale-cache
 // query failure entirely — no admin resync needed for the sync itself to keep working.
-async function queryTable(tableId, label, orderByFields = ['survey_id'], excludeFields = []) {
+//
+// This turned out not to be a one-off: a second, different column went stale the very next day
+// (unit_name_sb_2024_id — Metabase's error even hinted at the replacement, unit_name_sb_2025_id —
+// from an unrelated Management Unit template edit). Rather than manually chasing each new dead
+// column as templates keep changing, queryTable() below auto-detects Postgres's "column ... does
+// not exist" error, excludes that column, and retries — excludeFields above stays for callers who
+// already know a column is dead (skips the wasted failing request), but isn't required for the
+// sync to survive future template edits.
+const STALE_COLUMN_RE = /column\s+[\w."]*\.([a-zA-Z0-9_]+)\s+does not exist/i;
+const MAX_AUTO_EXCLUDE = 10; // safety cap — a real, unrelated failure shouldn't retry forever
+
+async function queryTable(tableId, label, orderByFields = ['survey_id'], excludeFields = [], _autoExcluded = new Set()) {
   const start = Date.now();
   console.log(`Querying ${label} (table ${tableId})...`);
   const meta = await getTableMetadata(tableId);
-  const excludeSet = new Set(excludeFields);
+  const excludeSet = new Set([...excludeFields, ..._autoExcluded]);
   const selectFields = meta.fields.filter((f) => !excludeSet.has(f.name));
   const fields = selectFields.map((f) => ['field', f.id, null]);
   const orderBy = orderByFields.map((name) => [['field', findField(meta, tableId, name).id, null], 'asc']);
@@ -107,7 +118,13 @@ async function queryTable(tableId, label, orderByFields = ['survey_id'], exclude
       }),
     });
     if (!res.ok) {
-      throw new Error(`Metabase query failed for table ${tableId}: HTTP ${res.status} ${await res.text()}`);
+      const bodyText = await res.text();
+      const staleMatch = bodyText.match(STALE_COLUMN_RE);
+      if (staleMatch && !_autoExcluded.has(staleMatch[1]) && _autoExcluded.size < MAX_AUTO_EXCLUDE) {
+        console.warn(`Column "${staleMatch[1]}" on table ${tableId} (${label}) no longer exists in Postgres but Metabase's schema cache still lists it — excluding it and retrying.`);
+        return queryTable(tableId, label, orderByFields, excludeFields, new Set([..._autoExcluded, staleMatch[1]]));
+      }
+      throw new Error(`Metabase query failed for table ${tableId}: HTTP ${res.status} ${bodyText}`);
     }
     const json = await res.json();
     rows.push(...json.data.rows);
