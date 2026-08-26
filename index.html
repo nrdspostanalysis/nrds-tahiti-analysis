@@ -9039,8 +9039,19 @@ function priorityZonesRanked(n, includeStale){
     if (a.score.cutDominanceTier !== b.score.cutDominanceTier) return a.score.cutDominanceTier - b.score.cutDominanceTier;
     return b.score.toCutScore - a.score.toCutScore;
   }).slice(0, n);
+  // Bug found & fixed 2026-08-26: with the planting checkbox on, toMaintainScore alone
+  // (actionCount-based base × planting discount) could still rank a zone with MANY planted
+  // individuals above one with NONE, whenever the planted zone happened to have fewer total
+  // actions overall (e.g. one big Plantation session vs. several separate cutting visits) — the
+  // discount wasn't decisive enough to overcome that. Fewer individuals planted must rank higher,
+  // absolutely, same "priorità assoluta" pattern as TO CUT's dominance tiering: sort by nrdsCount
+  // ascending first when the checkbox is on, toMaintainScore (still actionCount-based) only as a
+  // tiebreaker — not the other way around.
   var maintain = scored.filter(function(d){ return d.score.maintainEligible; })
-    .sort(function(a,b){ return b.score.toMaintainScore - a.score.toMaintainScore; }).slice(0, n);
+    .sort(function(a,b){
+      if (includePlantingInMaintain && a.score.nrdsCount !== b.score.nrdsCount) return a.score.nrdsCount - b.score.nrdsCount;
+      return b.score.toMaintainScore - a.score.toMaintainScore;
+    }).slice(0, n);
   return { plant: plant, cut: cut, maintain: maintain };
 }
 
@@ -9355,7 +9366,7 @@ function renderPriorityCalcBox(ranked){
   var html = '<b>Priority zones — three independent rankings</b><br><br>' +
     '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount × clean_weight — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort <i>and</i> is already cleared enough to plant into. clean_weight = the same "Combined current estimate" cleaning % shown elsewhere in the app, ÷100 — a 0%-clean zone scores zero here regardless of everything else, since there\'s nothing plantable yet.<br>' +
     '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far. Ranked by <b>dominant-vegetation tier first, score second</b> — invasive-dominant zones always rank above native-dominant ones, absolutely, regardless of score (same dominance lookup as TO PLANT\'s typology).<br>' +
-    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally discount this by NRDS planting effort — <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code>, same shape and halflife as TO PLANT\'s own discount, NRDS individuals only (not the historical survey) — so a zone with more plantings already recorded there ranks lower even at the same action count. Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
+    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally rank by NRDS planting effort — <b>absolutely</b> (fewer individuals planted always ranks above more, regardless of action count — same tiered-sort pattern as TO CUT\'s dominance ordering, not a soft multiplier: a multiplier alone couldn\'t guarantee it, since a zone with one big planting session but few total actions could otherwise still outscore a heavily-visited zone with none). Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
     '<b>Typology weights</b> (TO PLANT only): C=1.0 · B=0.8 · A*=0.4 · A=0.2 · X=0 — an unplanted zone that\'s already native-dominant (natural regen under way) ranks low; unplanted + invasive-dominant ranks highest.<br>' +
     '<b>Activity discount</b> (TO PLANT): <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code> — halves every '+PLANT_ACTIVITY_HALFLIFE+' individuals NRDS has planted in that zone since the historical baseline. Corrects for proj_planting% understating effort in large zones, where a real planting session barely moves the area-normalized %.<br>' +
     '<b>Activity discount</b> (TO CUT): <code>0.5 ^ (person_days_cutting / '+CUT_ACTIVITY_HALFLIFE+')</code> — halves every '+CUT_ACTIVITY_HALFLIFE+' person-days (headcount × session) of recorded Coupe du sous-bois work in that zone. NRDS has no hours-worked field, so person-days — already used the same way in the "People involved" chart — is the closest available proxy for effort.<br>' +
