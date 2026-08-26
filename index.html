@@ -9156,9 +9156,14 @@ function renderPriorityZonesDropdown(ranked){
 
 let lastPlantingValleyFilter = 'all';
 let lastCleaningValleyFilter = 'all';
+let lastCleaningZoneFilter = new Set(); // empty = all zones within the selected valley
 let lastRatLineCleaningValleyFilter = 'all';
 function setLastPlantingValley(v){ lastPlantingValleyFilter = v; onDataUpdated(); }
-function setLastCleaningValley(v){ lastCleaningValleyFilter = v; onDataUpdated(); }
+function setLastCleaningValley(v){ lastCleaningValleyFilter = v; lastCleaningZoneFilter = new Set(); onDataUpdated(); }
+function setLastCleaningZones(selectEl){
+  lastCleaningZoneFilter = new Set([...selectEl.selectedOptions].map(o => o.value));
+  onDataUpdated();
+}
 function setLastRatLineCleaningValley(v){ lastRatLineCleaningValleyFilter = v; onDataUpdated(); }
 
 function valleyFilterSelect(selected, onchangeFn){
@@ -9200,33 +9205,71 @@ function renderLastPlantingDropdown(mainRows){
   </details>`;
 }
 
+// Rewritten 2026-08-26 as an interactive table (was a fixed "15 most recent" card list): the old
+// arrival%→end% field is gone from NRDS as of 2026-08-25 (see data/live/README.md), replaced by
+// Number_of_Hours, so this now shows hours × headcount per session instead, plus a per-zone
+// summary and a zone-level filter (only meaningful once one valley is picked — Unit_Name isn't
+// unique across valleys) rather than the flat valley-only filter it had before.
 function renderLastCleaningDropdown(mainRows){
   const cleaningActions = ['CUTTING', 'MAINTENANCE'];
-  const rows = mainRows
-    .filter(r => cleaningActions.includes(r.Action) && r.Date && (lastCleaningValleyFilter==='all' || r.Valley===lastCleaningValleyFilter))
-    .sort((a,b) => new Date(b.Date) - new Date(a.Date))
-    .slice(0, 15);
-  const countLabel = rows.length ? `${rows.length} most recent` : 'no records yet';
+  const valleyRows = mainRows.filter(r =>
+    cleaningActions.includes(r.Action) && r.Date && r.Unit_Name &&
+    (lastCleaningValleyFilter==='all' || r.Valley===lastCleaningValleyFilter));
+
+  const zoneOptions = lastCleaningValleyFilter === 'all' ? [] : [...new Set(valleyRows.map(r => r.Unit_Name))].sort();
+  const rows = valleyRows
+    .filter(r => lastCleaningZoneFilter.size === 0 || lastCleaningZoneFilter.has(r.Unit_Name))
+    .sort((a,b) => new Date(b.Date) - new Date(a.Date));
+
   const valleySelect = valleyFilterSelect(lastCleaningValleyFilter, 'setLastCleaningValley');
-  const inner = rows.length
-    ? rows.map(r => {
-        const pct = (r.Pct_cleaned_arrival || r.Pct_cleaned_end_of_day)
-          ? `<b>${escapeHtml(r.Pct_cleaned_arrival || '—')}% → ${escapeHtml(r.Pct_cleaned_end_of_day || '—')}%</b>`
-          : `<span class="muted">—</span>`;
-        const nPeople = r.Number_of_Person ? `${escapeHtml(r.Number_of_Person)} ppl` : '';
-        return `<div style="display:flex;flex-wrap:wrap;row-gap:4px;align-items:flex-start;gap:10px;padding:7px 10px;margin-bottom:4px;background:#f7faf6;border-left:4px solid #6b8e6b;border-radius:0 6px 6px 0;max-width:100%;">
-          <span style="min-width:82px;font-size:12px;color:#555;">${escapeHtml(r.Date)}</span>
-          <span style="min-width:90px;font-weight:600;font-size:13px;">${escapeHtml(r.Unit_Name||'—')} <span class="muted" style="font-weight:400;">(${escapeHtml(r.Valley||'—')})</span></span>
-          <span style="flex:1;min-width:100px;font-size:12.5px;">${escapeHtml(r.Action||'')}</span>
-          <span class="muted" style="font-size:11.5px;white-space:nowrap;">${pct}</span>
-          <span class="muted" style="font-size:11.5px;white-space:nowrap;">${nPeople}</span>
-          <span class="muted" style="font-size:11px;white-space:nowrap;">${escapeHtml(r.Name||'')}</span>
-        </div>`;
-      }).join('')
+  const zoneSelect = lastCleaningValleyFilter === 'all' ? '' : `
+    <label class="muted" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+      Zone(s):
+      <select multiple onchange="setLastCleaningZones(this)" style="padding:2px 6px;font-size:12px;min-width:130px;height:${Math.min(6, Math.max(1, zoneOptions.length))*20}px;">
+        ${zoneOptions.map(z => `<option value="${escapeHtml(z)}" ${lastCleaningZoneFilter.has(z)?'selected':''}>${escapeHtml(z)}</option>`).join('')}
+      </select>
+      <span class="muted" style="font-size:11px;">ctrl/cmd-click for multiple — none selected = all zones in ${escapeHtml(lastCleaningValleyFilter)}</span>
+    </label>`;
+
+  const countLabel = rows.length ? `${rows.length} action${rows.length===1?'':'s'}` : 'no records yet';
+
+  // Per-zone summary: total actions + cumulative person-hours (same real-hours-or-fallback
+  // convention used everywhere else in the app, see HOURS_PER_DAY_FALLBACK) + most recent date,
+  // for whichever zones are currently in scope.
+  const byZone = new Map();
+  for (const r of rows){
+    if (!byZone.has(r.Unit_Name)) byZone.set(r.Unit_Name, { valley:r.Valley, count:0, personHours:0, lastDate:r.Date });
+    const z = byZone.get(r.Unit_Name);
+    z.count++;
+    const h = +r.Number_of_Hours;
+    const hours = (isFinite(h) && h > 0) ? h : HOURS_PER_DAY_FALLBACK;
+    z.personHours += hours * (+r.Number_of_Person || 1);
+    if (r.Date > z.lastDate) z.lastDate = r.Date;
+  }
+  const zoneSummaryRows = [...byZone.entries()].sort((a,b) => b[1].count - a[1].count);
+  const summaryHtml = zoneSummaryRows.length ? `<div class="table-scroll" style="margin-bottom:10px;max-height:180px;"><table class="preview"><thead><tr>
+      <th>Zone</th><th>Valley</th><th># actions</th><th>Person-hours</th><th>Last action</th>
+    </tr></thead><tbody>${zoneSummaryRows.map(([zone,z]) =>
+      `<tr><td><b>${escapeHtml(zone)}</b></td><td>${escapeHtml(z.valley)}</td><td>${z.count}</td><td>${z.personHours.toFixed(0)}</td><td>${escapeHtml(z.lastDate)}</td></tr>`
+    ).join('')}</tbody></table></div>` : '';
+
+  const anyMissingHours = rows.some(r => !(isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0));
+  const detailHtml = rows.length ? `<div class="table-scroll"><table class="preview"><thead><tr>
+      <th>Date</th><th>Zone</th><th>Valley</th><th>Action</th><th>People</th><th>Hours</th><th>Person-hours</th><th>Observer</th>
+    </tr></thead><tbody>${rows.map(r => {
+      const h = +r.Number_of_Hours;
+      const hasHours = isFinite(h) && h > 0;
+      const people = +r.Number_of_Person || null;
+      const personHoursTxt = people != null ? ((hasHours ? h : HOURS_PER_DAY_FALLBACK) * people).toFixed(0) + (hasHours ? '' : '*') : '—';
+      return `<tr><td>${escapeHtml(r.Date)}</td><td><b>${escapeHtml(r.Unit_Name)}</b></td><td>${escapeHtml(r.Valley||'—')}</td>` +
+        `<td>${escapeHtml(r.Action||'')}</td><td>${people!=null?people:'—'}</td><td>${hasHours?h:'—'}</td><td>${personHoursTxt}</td><td>${escapeHtml(r.Name||'')}</td></tr>`;
+    }).join('')}</tbody></table></div>` +
+    (anyMissingHours ? `<div class="muted" style="font-size:11px;margin-top:4px;">* hours not recorded for this session (before NRDS added "Number of hours" on 2026-08-25) — estimated at ${HOURS_PER_DAY_FALLBACK}h/person.</div>` : '')
     : `<div class="muted" style="padding:8px 10px;">No cleaning actions recorded yet.</div>`;
+
   return `<details style="margin-top:8px;">
     <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🧹 Last cleaning actions (${countLabel})</summary>
-    <div style="margin-top:8px;">${valleySelect}${inner}</div>
+    <div style="margin-top:8px;">${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}</div>
   </details>`;
 }
 
