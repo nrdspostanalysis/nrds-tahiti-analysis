@@ -6080,8 +6080,15 @@ function onDataUpdated(){
 
   const lastCutting = lastActionOfType(mainRows, ['CUTTING', 'MAINTENANCE']);
   const lastPlantation = lastActionOfType(mainRows, 'PLANTATION');
+  // Pct_cleaned_end_of_day is always blank on this specific row for any session logged since
+  // 2026-08-25 (NRDS stopped collecting it — see data/live/README.md); fall back to
+  // latestUnitStatus()'s own hours-derived estimate for that zone, same source cleaningSummary
+  // above already uses, rather than showing a bare "?%" for every recent cutting/maintenance action.
+  const lastCuttingPct = lastCutting && lastCutting.Pct_cleaned_end_of_day !== ''
+    ? lastCutting.Pct_cleaned_end_of_day
+    : (lastCutting ? latestUnitStatus().get(lastCutting.Unit_Name) : null)?.pct?.toFixed(0);
   const cuttingText = lastCutting
-    ? `${escapeHtml(lastCutting.Unit_Name)} (${escapeHtml(lastCutting.Valley)}) — ${lastCutting.Pct_cleaned_end_of_day || '?'}%`
+    ? `${escapeHtml(lastCutting.Unit_Name)} (${escapeHtml(lastCutting.Valley)}) — ${lastCuttingPct != null ? lastCuttingPct : '?'}%`
     : '—';
   const plantationSpecies = lastPlantation ? (lastPlantation.Species_Planted||'').split(';').filter(Boolean).map(escapeHtml).join(', ') : '';
   const plantationText = lastPlantation
@@ -7300,6 +7307,17 @@ function latestUnitStatus(dateFrom, dateTo){
     const cur = map.get(r.Unit_Name);
     if (isNewerReading(r, cur)) map.set(r.Unit_Name, {pct:+r.Pct_cleaned_end_of_day, date:r.Date, name:r.Name, comment:r.Comment});
   }
+  // 2026-08-26: every zone worked on since NRDS stopped collecting cleaning % (2026-08-25) has no
+  // entry above at all — the plain "NRDS only" map layer/home stat went blank for them. Zones with
+  // recorded CUTTING/MAINTENANCE hours but no %-reading (map has() check, not overwritten) get a
+  // standalone hours-derived estimate instead, flagged fromHours so combinedCleaningEstimate()
+  // knows to treat it as an additive increment on top of history rather than an independent
+  // reading to blend (see hoursOnlyEstimateForZone()'s own comment).
+  for (const r of enriched.mainRows){
+    if ((r.Action !== 'CUTTING' && r.Action !== 'MAINTENANCE') || !r.Unit_Name || map.has(r.Unit_Name) || !inDateRange(r.Date, dateFrom, dateTo)) continue;
+    const est = hoursOnlyEstimateForZone(r.Unit_Name);
+    if (est) map.set(r.Unit_Name, est);
+  }
   return map;
 }
 // same idea as latestUnitStatus() but at rat-station precision, for actions where it's available
@@ -8022,6 +8040,24 @@ function personHoursPerHaForZone(hu){
   if (vd && vd.dominance === 'native') return PERSON_HOURS_PER_HA_NATIVE;
   if (vd && vd.dominance === 'invasive') return PERSON_HOURS_PER_HA_INVASIVE;
   return PERSON_HOURS_PER_HA_DEFAULT;
+}
+// Standalone hours-derived % for one zone — NOT added onto any historical baseline (unlike
+// combinedCleaningEstimate()'s own use of hours, see its comments): this is what feeds
+// latestUnitStatus()'s hours fallback below, i.e. the plain "NRDS only" reading with no
+// historical data involved at all, so there's nothing to add onto here. Ignores any dateFrom/
+// dateTo the caller filtered by — cumulative all-time hours, same simplification
+// combinedCleaningEstimate() already made, not yet worth the complexity of a bounded version.
+function hoursOnlyEstimateForZone(unitName){
+  const u = (tables.managementUnit||[]).find(x => x['Nom'] === unitName);
+  const areaHa = u ? zoneAreaHectares(u['Geometry']) : null;
+  if (!areaHa) return null;
+  const activity = nrdsCuttingHoursSince(unitName, null);
+  if (!activity) return null;
+  const hu = pastUnitLookupMap().get(u['Vallee']+'||'+unitName);
+  const rate = personHoursPerHaForZone(hu);
+  if (!(rate > 0)) return null;
+  const pct = Math.min(100, (activity.totalPersonHours / rate / areaHa) * 100);
+  return { pct, date: activity.latestDate, name: null, comment: null, fromHours: true, hoursInfo: activity, hoursRateUsed: rate };
 }
 // τ inputs live in renderCombinedCalcBox() but affect the Combined Cleaning Estimate everywhere it's
 // used (map, home-dashboard TO PLANT/TO CLEAN priority rankings, Temporal Trends zone priority) — a
@@ -8787,31 +8823,29 @@ function combinedCleaningEstimate(hu, unitName, fallbackSt){
 
   const agg = zoneNrdsAggregate(unitName, tau);
   let nrdsPct = agg.pct, daysNrds = agg.days, coverage = agg.coverage, usedFallback = false;
-  if (nrdsPct == null && fallbackSt){
-    // no rat station inside this zone could be geographically resolved at all — fall back to the
-    // single most recent zone-level action so the estimate doesn't silently drop to "no NRDS data"
-    nrdsPct = fallbackSt.pct; daysNrds = daysBetween(today, new Date(fallbackSt.date)); usedFallback = true;
-  }
-
-  // 2026-08-25: NRDS stopped collecting any cleaning % at all (the fields behind agg/fallbackSt
-  // are gone from the source — see data/live/README.md), so for any zone with no OLD % reading
-  // left to fall back on, nrdsPct is still null here. Third tier: estimate % from person-hours of
-  // CUTTING/MAINTENANCE effort recorded, area-normalized via a per-vegetation-dominance clearing
-  // rate (same technique as the TO PLANT projection's nrdsDensityPerHa) — a zone with no
-  // geometry/area on file can't be normalized this way and is left with no NRDS-side data, same
-  // as before.
   let usedHoursFallback = false, hoursInfo = null, hoursRateUsed = null;
-  if (nrdsPct == null){
-    const u = (tables.managementUnit||[]).find(x => x['Nom'] === unitName);
-    const areaHa = u ? zoneAreaHectares(u['Geometry']) : null;
-    const activity = nrdsCuttingHoursSince(unitName, null);
-    const rate = personHoursPerHaForZone(hu);
-    if (activity && areaHa && rate > 0){
-      nrdsPct = Math.min(100, (activity.totalPersonHours / rate / areaHa) * 100);
-      daysNrds = daysBetween(today, new Date(activity.latestDate));
+  if (nrdsPct == null && fallbackSt){
+    usedFallback = true;
+    daysNrds = daysBetween(today, new Date(fallbackSt.date));
+    if (fallbackSt.fromHours){
+      // fallbackSt came from latestUnitStatus()'s own hours fallback (2026-08-25: NRDS stopped
+      // collecting cleaning % at all — see data/live/README.md) — its .pct is a STANDALONE
+      // hours-derived estimate, not a state reading. Hours measure progress made, not the zone's
+      // whole current state, so add it on top of history (capped at 100 - hist%) instead of
+      // blending it as an independent reading (bug found & fixed 2026-08-26): a zone the
+      // historical survey already called "effectuee" (100%) that gets one more logged session
+      // must stay near 100%, not reset to whatever fraction that session's hours alone would
+      // imply — same capping rule TO PLANT's own nrdsPctAdd already uses for individuals-planted.
       usedHoursFallback = true;
-      hoursRateUsed = rate;
-      hoursInfo = activity;
+      hoursInfo = fallbackSt.hoursInfo;
+      hoursRateUsed = fallbackSt.hoursRateUsed;
+      const histBasePct = hv ? hv.pct : 0;
+      const hoursPctAdd = Math.min(100 - histBasePct, fallbackSt.pct);
+      nrdsPct = Math.min(100, histBasePct + hoursPctAdd);
+    } else {
+      // no rat station inside this zone could be geographically resolved at all — fall back to the
+      // single most recent zone-level action so the estimate doesn't silently drop to "no NRDS data"
+      nrdsPct = fallbackSt.pct;
     }
   }
 
@@ -8937,6 +8971,14 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
     // sous-bois work rather than individuals planted.
     var cutActivityDiscount = Math.pow(0.5, personDaysCut / CUT_ACTIVITY_HALFLIFE);
     var toCutScore = (1 - histCutPct/100) * cutActivityDiscount;
+    // Absolute priority tiering by dominant vegetation (Marco, 2026-08-26): invasive-dominant
+    // zones always rank above everything else in TO CUT, native-dominant zones always sink to the
+    // bottom — toCutScore only breaks ties within the same tier. Reuses topo.vd (same
+    // latestVegDominance() call zoneTypology() already made above for TO PLANT) rather than a
+    // soft multiplicative weight, since a multiplier can't *guarantee* the ordering in every case
+    // (a barely-started native zone could still outscore an almost-done invasive one).
+    var cutDominance = topo.vd ? topo.vd.dominance : null; // 'invasive' | 'native' | 'anthropic' | null
+    var cutDominanceTier = cutDominance === 'invasive' ? 0 : cutDominance === 'native' ? 2 : 1;
 
     // TO MAINTAIN: not a continuous score blended with the other two — a filtered list. Only
     // zones already mostly cut historically (> MAINTAIN_HIST_THRESHOLD%) qualify at all (below
@@ -8955,6 +8997,7 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
              nrdsCount:nrdsCount, activityDiscount:activityDiscount,
              topoType:topo.type, domWeight:domWeight, toPlantScore:toPlantScore,
              histCutPct:histCutPct, personDaysCut:personDaysCut, cutActivityDiscount:cutActivityDiscount, toCutScore:toCutScore,
+             cutDominance:cutDominance, cutDominanceTier:cutDominanceTier,
              actionCount:actionCount, maintainEligible:maintainEligible,
              maintainPlantDiscount:maintainPlantDiscount, toMaintainScore:toMaintainScore };
   } catch(e){ return null; }
@@ -8983,7 +9026,10 @@ function priorityZonesRanked(n, includeStale){
 
   var scored = data.filter(function(d){ return d.score; });
   var plant = scored.slice().sort(function(a,b){ return b.score.toPlantScore - a.score.toPlantScore; }).slice(0, n);
-  var cut = scored.slice().sort(function(a,b){ return b.score.toCutScore - a.score.toCutScore; }).slice(0, n);
+  var cut = scored.slice().sort(function(a,b){
+    if (a.score.cutDominanceTier !== b.score.cutDominanceTier) return a.score.cutDominanceTier - b.score.cutDominanceTier;
+    return b.score.toCutScore - a.score.toCutScore;
+  }).slice(0, n);
   var maintain = scored.filter(function(d){ return d.score.maintainEligible; })
     .sort(function(a,b){ return b.score.toMaintainScore - a.score.toMaintainScore; }).slice(0, n);
   return { plant: plant, cut: cut, maintain: maintain };
@@ -9056,7 +9102,8 @@ function renderPriorityZonesDropdown(ranked){
     return priorityBarRow(d, i, 'toPlantScore', maxPlant, '#2ca02c', Math.round(d.score.projPct*100)+'% pl · type '+d.score.topoType+' · '+d.score.nrdsCount+' ind.');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone with data.</div>';
   var cutRows = cut.map(function(d,i){
-    return priorityBarRow(d, i, 'toCutScore', maxCut, '#c9822a', Math.round(d.score.histCutPct)+'% hist cut · '+d.score.personDaysCut.toFixed(0)+' person-days');
+    var domTxt = d.score.cutDominance ? d.score.cutDominance : 'unknown';
+    return priorityBarRow(d, i, 'toCutScore', maxCut, '#c9822a', domTxt+' · '+Math.round(d.score.histCutPct)+'% hist cut · '+d.score.personDaysCut.toFixed(0)+' person-days');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone with data.</div>';
   var maintainRows = maintain.map(function(d,i){
     var stat = Math.round(d.score.histCutPct)+'% hist cut · '+d.score.actionCount+' action(s) recorded' +
@@ -9298,7 +9345,7 @@ function renderPriorityCalcBox(ranked){
   var plant = ranked.plant || [], cut = ranked.cut || [], maintain = ranked.maintain || [];
   var html = '<b>Priority zones — three independent rankings</b><br><br>' +
     '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort.<br>' +
-    '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far.<br>' +
+    '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far. Ranked by <b>dominant-vegetation tier first, score second</b> — invasive-dominant zones always rank above native-dominant ones, absolutely, regardless of score (same dominance lookup as TO PLANT\'s typology).<br>' +
     '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally discount this by NRDS planting effort — <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code>, same shape and halflife as TO PLANT\'s own discount, NRDS individuals only (not the historical survey) — so a zone with more plantings already recorded there ranks lower even at the same action count. Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
     '<b>Typology weights</b> (TO PLANT only): C=1.0 · B=0.8 · A*=0.4 · A=0.2 · X=0 — an unplanted zone that\'s already native-dominant (natural regen under way) ranks low; unplanted + invasive-dominant ranks highest.<br>' +
     '<b>Activity discount</b> (TO PLANT): <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code> — halves every '+PLANT_ACTIVITY_HALFLIFE+' individuals NRDS has planted in that zone since the historical baseline. Corrects for proj_planting% understating effort in large zones, where a real planting session barely moves the area-normalized %.<br>' +
@@ -9321,9 +9368,9 @@ function renderPriorityCalcBox(ranked){
     html += '<b>🪓 TO CUT ranking</b><div class="muted" style="margin:4px 0 10px;">No zone with data.</div>';
   } else {
     html += '<b>🪓 TO CUT ranking</b><div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
-      '<th>#</th><th>Unit</th><th>Score</th><th>Hist cut%</th><th>Person-days</th><th>Discount</th></tr></thead><tbody>';
+      '<th>#</th><th>Unit</th><th>Dominance tier</th><th>Score</th><th>Hist cut%</th><th>Person-days</th><th>Discount</th></tr></thead><tbody>';
     cut.forEach(function(d,i){
-      html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td><td><b>'+d.score.toCutScore.toFixed(3)+'</b></td>' +
+      html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td><td>'+escapeHtml(d.score.cutDominance||'unknown')+'</td><td><b>'+d.score.toCutScore.toFixed(3)+'</b></td>' +
         '<td>'+Math.round(d.score.histCutPct)+'%</td><td>'+d.score.personDaysCut.toFixed(0)+'</td><td>×'+d.score.cutActivityDiscount.toFixed(2)+'</td></tr>';
     });
     html += '</tbody></table></div>';
@@ -9536,7 +9583,12 @@ function renderCombinedCalcBox(breakdown){
     fall back on (see table below) instead gets its NRDS % estimated from cumulative person-hours of
     CUTTING/MAINTENANCE work (hours × headcount, older pre-08-25 sessions counted as ${HOURS_PER_DAY_FALLBACK}h/person
     each) divided by the zone's area and the clearing rate for its dominant vegetation (same
-    native/invasive dominance already used for the τ/typology logic above). Marco's reference
+    native/invasive dominance already used for the τ/typology logic above). <b>Added on top of the
+    historical %, not a standalone reading</b> — hours measure progress made, not the zone's whole
+    state, so the increment is capped at <code>100% − historical%</code> before adding (same rule
+    TO PLANT's own nrdsPctAdd already uses for individuals-planted): a zone the historical survey
+    already called "effectuee" (100%) that gets one more logged session stays at ~100%, it doesn't
+    reset to whatever fraction that one session's hours alone would imply. Marco's reference
     (2026-08-26): one average person clears ~50 m² in 1 hour → 200 person-hours/ha baseline; real
     clearing speed varies by vegetation density, hence the 3 separate rates below (all start equal
     to that one reference until field experience splits them further).<br>
