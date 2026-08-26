@@ -8954,12 +8954,19 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
     // independent of zone area — a reasoned, adjustable assumption (not empirically calibrated),
     // same style as RECENCY_TAU_MICONIA_DAYS/RECENCY_TAU_SPATHODEA_DAYS/nrdsDensityPerHa elsewhere in this file.
     var activityDiscount = Math.pow(0.5, nrdsCount / PLANT_ACTIVITY_HALFLIFE);
-    // TO PLANT: high when a zone is still unplanted AND invasive-dominated — nothing planted
-    // there yet to protect, still needs active restoration work. A native-dominant zone with
-    // low planting% (natural regen, domWeight low) ranks low even with a big planting deficit;
-    // a zone where NRDS has already planted a lot recently also ranks lower, even if the % gain
-    // from that effort was diluted by a large zone area.
-    var toPlantScore = (1 - projPct) * domWeight * activityDiscount;
+    // Cleaning/maintenance readiness (Marco, 2026-08-26): an overgrown zone isn't actually
+    // plantable yet, so TO PLANT priority also scales with how cleared the zone already is —
+    // reuses d.res.estimate, the same combined historical+NRDS cleaning % everywhere else in the
+    // app already shows for this zone, rather than recomputing it. A 0%-clean zone gets zero
+    // TO PLANT priority (nothing to plant into yet, regardless of how invasive-dominated or
+    // unplanted it is); a fully-clean zone doesn't get discounted at all.
+    var cleanWeight = (d.res.estimate != null ? d.res.estimate : 0) / 100;
+    // TO PLANT: high when a zone is still unplanted AND invasive-dominated AND already cleared
+    // enough to plant into — nothing planted there yet to protect, still needs active restoration
+    // work. A native-dominant zone with low planting% (natural regen, domWeight low) ranks low
+    // even with a big planting deficit; a zone where NRDS has already planted a lot recently also
+    // ranks lower, even if the % gain from that effort was diluted by a large zone area.
+    var toPlantScore = (1 - projPct) * domWeight * activityDiscount * cleanWeight;
 
     var hvCut = latestHistValue(hu, SB_WEIGHTS, 'SB');
     var histCutPct = hvCut ? (hvCut.pct || 0) : 0;
@@ -8996,7 +9003,7 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
     var toMaintainScore = maintainEligible ? (1/(1+actionCount)) * maintainPlantDiscount : 0;
 
     return { projPct:projPct, histPct:histPct, nrdsPctAdd:nrdsPctAdd,
-             nrdsCount:nrdsCount, activityDiscount:activityDiscount,
+             nrdsCount:nrdsCount, activityDiscount:activityDiscount, cleanWeight:cleanWeight,
              topoType:topo.type, domWeight:domWeight, toPlantScore:toPlantScore,
              histCutPct:histCutPct, personDaysCut:personDaysCut, cutActivityDiscount:cutActivityDiscount, toCutScore:toCutScore,
              cutDominance:cutDominance, cutDominanceTier:cutDominanceTier,
@@ -9101,7 +9108,7 @@ function renderPriorityZonesDropdown(ranked){
   var maxCut = cut.length ? cut[0].score.toCutScore : 0;
   var maxMaintain = maintain.length ? maintain[0].score.toMaintainScore : 0;
   var plantRows = plant.map(function(d,i){
-    return priorityBarRow(d, i, 'toPlantScore', maxPlant, '#2ca02c', Math.round(d.score.projPct*100)+'% pl · type '+d.score.topoType+' · '+d.score.nrdsCount+' ind.');
+    return priorityBarRow(d, i, 'toPlantScore', maxPlant, '#2ca02c', Math.round(d.score.projPct*100)+'% pl · type '+d.score.topoType+' · '+d.score.nrdsCount+' ind. · '+Math.round(d.score.cleanWeight*100)+'% clean');
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone with data.</div>';
   var cutRows = cut.map(function(d,i){
     var domTxt = d.score.cutDominance ? d.score.cutDominance : 'unknown';
@@ -9346,7 +9353,7 @@ function renderCleaningVsMaintenanceDropdown(){
 function renderPriorityCalcBox(ranked){
   var plant = ranked.plant || [], cut = ranked.cut || [], maintain = ranked.maintain || [];
   var html = '<b>Priority zones — three independent rankings</b><br><br>' +
-    '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort.<br>' +
+    '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount × clean_weight — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort <i>and</i> is already cleared enough to plant into. clean_weight = the same "Combined current estimate" cleaning % shown elsewhere in the app, ÷100 — a 0%-clean zone scores zero here regardless of everything else, since there\'s nothing plantable yet.<br>' +
     '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far. Ranked by <b>dominant-vegetation tier first, score second</b> — invasive-dominant zones always rank above native-dominant ones, absolutely, regardless of score (same dominance lookup as TO PLANT\'s typology).<br>' +
     '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally discount this by NRDS planting effort — <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code>, same shape and halflife as TO PLANT\'s own discount, NRDS individuals only (not the historical survey) — so a zone with more plantings already recorded there ranks lower even at the same action count. Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
     '<b>Typology weights</b> (TO PLANT only): C=1.0 · B=0.8 · A*=0.4 · A=0.2 · X=0 — an unplanted zone that\'s already native-dominant (natural regen under way) ranks low; unplanted + invasive-dominant ranks highest.<br>' +
@@ -9358,11 +9365,11 @@ function renderPriorityCalcBox(ranked){
     html += '<b>🌱 TO PLANT ranking</b><div class="muted" style="margin:4px 0 10px;">No zone with data.</div>';
   } else {
     html += '<b>🌱 TO PLANT ranking</b><div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
-      '<th>#</th><th>Unit</th><th>Score</th><th>Proj%</th><th>Type</th><th>Ind. planted</th><th>Discount</th></tr></thead><tbody>';
+      '<th>#</th><th>Unit</th><th>Score</th><th>Proj%</th><th>Type</th><th>Ind. planted</th><th>Discount</th><th>Clean%</th></tr></thead><tbody>';
     plant.forEach(function(d,i){
       html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td><td><b>'+d.score.toPlantScore.toFixed(3)+'</b></td>' +
         '<td>'+Math.round(d.score.projPct*100)+'%</td><td>'+escapeHtml(d.score.topoType)+'</td>' +
-        '<td>'+d.score.nrdsCount+'</td><td>×'+d.score.activityDiscount.toFixed(2)+'</td></tr>';
+        '<td>'+d.score.nrdsCount+'</td><td>×'+d.score.activityDiscount.toFixed(2)+'</td><td>'+Math.round(d.score.cleanWeight*100)+'%</td></tr>';
     });
     html += '</tbody></table></div>';
   }
