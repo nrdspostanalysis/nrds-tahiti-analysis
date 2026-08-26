@@ -9169,6 +9169,36 @@ function setLastCleaningZones(selectEl){
 }
 function setLastRatLineCleaningValley(v){ lastRatLineCleaningValleyFilter = v; onDataUpdated(); }
 
+// Sortable-column state for the "Last cleaning actions" widget's two tables — clicking a header
+// sorts by that column, clicking the same header again flips direction (default: date desc /
+// action count desc, matching the previous fixed behavior).
+let lastCleaningDetailSort = { col: 'date', dir: 'desc' };
+let lastCleaningSummarySort = { col: 'count', dir: 'desc' };
+function setLastCleaningDetailSort(col){
+  if (lastCleaningDetailSort.col === col) lastCleaningDetailSort.dir = lastCleaningDetailSort.dir === 'asc' ? 'desc' : 'asc';
+  else { lastCleaningDetailSort.col = col; lastCleaningDetailSort.dir = 'asc'; }
+  onDataUpdated();
+}
+function setLastCleaningSummarySort(col){
+  if (lastCleaningSummarySort.col === col) lastCleaningSummarySort.dir = lastCleaningSummarySort.dir === 'asc' ? 'desc' : 'asc';
+  else { lastCleaningSummarySort.col = col; lastCleaningSummarySort.dir = 'asc'; }
+  onDataUpdated();
+}
+// Generic array sort by an extracted key: numbers compare numerically, everything else as
+// case-insensitive strings (ISO dates sort correctly as strings too, no Date parsing needed).
+function sortByKey(arr, sortState, keyFn){
+  const dir = sortState.dir === 'asc' ? 1 : -1;
+  return arr.slice().sort((a,b) => {
+    const va = keyFn(a, sortState.col), vb = keyFn(b, sortState.col);
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+    return String(va).localeCompare(String(vb)) * dir;
+  });
+}
+function sortableTh(label, col, sortState, handler){
+  const arrow = sortState.col === col ? (sortState.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  return `<th onclick="${handler}('${col}')" style="cursor:pointer;user-select:none;white-space:nowrap;" title="Sort by ${escapeHtml(label)}">${escapeHtml(label)}${arrow}</th>`;
+}
+
 function valleyFilterSelect(selected, onchangeFn){
   const valleyOpts = ['all'].concat(getAllValleys()).map(v => {
     const sel = selected===v ? 'selected' : '';
@@ -9220,9 +9250,7 @@ function renderLastCleaningDropdown(mainRows){
     (lastCleaningValleyFilter==='all' || r.Valley===lastCleaningValleyFilter));
 
   const zoneOptions = lastCleaningValleyFilter === 'all' ? [] : [...new Set(valleyRows.map(r => r.Unit_Name))].sort();
-  const rows = valleyRows
-    .filter(r => lastCleaningZoneFilter.size === 0 || lastCleaningZoneFilter.has(r.Unit_Name))
-    .sort((a,b) => new Date(b.Date) - new Date(a.Date));
+  const rows = valleyRows.filter(r => lastCleaningZoneFilter.size === 0 || lastCleaningZoneFilter.has(r.Unit_Name));
 
   const valleySelect = valleyFilterSelect(lastCleaningValleyFilter, 'setLastCleaningValley');
   const zoneSelect = lastCleaningValleyFilter === 'all' ? '' : `
@@ -9249,23 +9277,41 @@ function renderLastCleaningDropdown(mainRows){
     z.personHours += hours * (+r.Number_of_Person || 1);
     if (r.Date > z.lastDate) z.lastDate = r.Date;
   }
-  const zoneSummaryRows = [...byZone.entries()].sort((a,b) => b[1].count - a[1].count);
-  const summaryHtml = zoneSummaryRows.length ? `<div class="table-scroll" style="margin-bottom:10px;max-height:180px;"><table class="preview"><thead><tr>
-      <th>Zone</th><th>Valley</th><th># actions</th><th>Person-hours</th><th>Last action</th>
-    </tr></thead><tbody>${zoneSummaryRows.map(([zone,z]) =>
-      `<tr><td><b>${escapeHtml(zone)}</b></td><td>${escapeHtml(z.valley)}</td><td>${z.count}</td><td>${z.personHours.toFixed(0)}</td><td>${escapeHtml(z.lastDate)}</td></tr>`
+  const zoneSummaryData = [...byZone.entries()].map(([zone,z]) => ({ zone, valley:z.valley, count:z.count, personHours:z.personHours, lastDate:z.lastDate }));
+  function summaryKey(r, col){
+    if (col==='zone') return r.zone; if (col==='valley') return r.valley||'';
+    if (col==='count') return r.count; if (col==='personHours') return r.personHours; if (col==='lastDate') return r.lastDate;
+    return r.count;
+  }
+  const sortedSummary = sortByKey(zoneSummaryData, lastCleaningSummarySort, summaryKey);
+  const summaryHtml = sortedSummary.length ? `<div class="table-scroll" style="margin-bottom:10px;max-height:180px;"><table class="preview"><thead><tr>
+      ${sortableTh('Zone','zone',lastCleaningSummarySort,'setLastCleaningSummarySort')}${sortableTh('Valley','valley',lastCleaningSummarySort,'setLastCleaningSummarySort')}${sortableTh('# actions','count',lastCleaningSummarySort,'setLastCleaningSummarySort')}${sortableTh('Person-hours','personHours',lastCleaningSummarySort,'setLastCleaningSummarySort')}${sortableTh('Last action','lastDate',lastCleaningSummarySort,'setLastCleaningSummarySort')}
+    </tr></thead><tbody>${sortedSummary.map(z =>
+      `<tr><td><b>${escapeHtml(z.zone)}</b></td><td>${escapeHtml(z.valley)}</td><td>${z.count}</td><td>${z.personHours.toFixed(0)}</td><td>${escapeHtml(z.lastDate)}</td></tr>`
     ).join('')}</tbody></table></div>` : '';
 
   const anyMissingHours = rows.some(r => !(isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0));
-  const detailHtml = rows.length ? `<div class="table-scroll"><table class="preview"><thead><tr>
-      <th>Date</th><th>Zone</th><th>Valley</th><th>Action</th><th>People</th><th>Hours</th><th>Person-hours</th><th>Observer</th>
-    </tr></thead><tbody>${rows.map(r => {
-      const h = +r.Number_of_Hours;
-      const hasHours = isFinite(h) && h > 0;
-      const people = +r.Number_of_Person || null;
-      const personHoursTxt = people != null ? ((hasHours ? h : HOURS_PER_DAY_FALLBACK) * people).toFixed(0) + (hasHours ? '' : '*') : '—';
-      return `<tr><td>${escapeHtml(r.Date)}</td><td><b>${escapeHtml(r.Unit_Name)}</b></td><td>${escapeHtml(r.Valley||'—')}</td>` +
-        `<td>${escapeHtml(r.Action||'')}</td><td>${people!=null?people:'—'}</td><td>${hasHours?h:'—'}</td><td>${personHoursTxt}</td><td>${escapeHtml(r.Name||'')}</td></tr>`;
+  const detailData = rows.map(r => {
+    const h = +r.Number_of_Hours;
+    const hasHours = isFinite(h) && h > 0;
+    const people = +r.Number_of_Person || null;
+    const personHours = people != null ? (hasHours ? h : HOURS_PER_DAY_FALLBACK) * people : null;
+    return { date:r.Date, zone:r.Unit_Name, valley:r.Valley||'—', action:r.Action||'', people, hasHours, hours:h, personHours, observer:r.Name||'' };
+  });
+  function detailKey(r, col){
+    if (col==='date') return r.date; if (col==='zone') return r.zone; if (col==='valley') return r.valley;
+    if (col==='action') return r.action; if (col==='people') return r.people != null ? r.people : -1;
+    if (col==='hours') return r.hasHours ? r.hours : -1; if (col==='personHours') return r.personHours != null ? r.personHours : -1;
+    if (col==='observer') return r.observer;
+    return r.date;
+  }
+  const sortedDetail = sortByKey(detailData, lastCleaningDetailSort, detailKey);
+  const detailHtml = sortedDetail.length ? `<div class="table-scroll"><table class="preview"><thead><tr>
+      ${sortableTh('Date','date',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('Zone','zone',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('Valley','valley',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('Action','action',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('People','people',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('Hours','hours',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('Person-hours','personHours',lastCleaningDetailSort,'setLastCleaningDetailSort')}${sortableTh('Observer','observer',lastCleaningDetailSort,'setLastCleaningDetailSort')}
+    </tr></thead><tbody>${sortedDetail.map(r => {
+      const personHoursTxt = r.personHours != null ? r.personHours.toFixed(0) + (r.hasHours ? '' : '*') : '—';
+      return `<tr><td>${escapeHtml(r.date)}</td><td><b>${escapeHtml(r.zone)}</b></td><td>${escapeHtml(r.valley)}</td>` +
+        `<td>${escapeHtml(r.action)}</td><td>${r.people!=null?r.people:'—'}</td><td>${r.hasHours?r.hours:'—'}</td><td>${personHoursTxt}</td><td>${escapeHtml(r.observer)}</td></tr>`;
     }).join('')}</tbody></table></div>` +
     (anyMissingHours ? `<div class="muted" style="font-size:11px;margin-top:4px;">* hours not recorded for this session (before NRDS added "Number of hours" on 2026-08-25) — estimated at ${HOURS_PER_DAY_FALLBACK}h/person.</div>` : '')
     : `<div class="muted" style="padding:8px 10px;">No cleaning actions recorded yet.</div>`;
