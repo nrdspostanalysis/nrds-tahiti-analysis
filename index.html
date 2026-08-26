@@ -6041,11 +6041,21 @@ function weightedCleaningPctSummary(){
   for (const v in perValley) byValley[v] = perValley[v].area ? (perValley[v].sum/perValley[v].area) : null;
   return { overall: totalArea ? sum/totalArea : null, byValley };
 }
-function lastActionOfType(mainRows, actionValues){
-  const values = Array.isArray(actionValues) ? actionValues : [actionValues];
-  const rows = mainRows.filter(r => values.includes(r.Action) && r.Date);
-  rows.sort((a,b) => new Date(b.Date) - new Date(a.Date));
-  return rows[0] || null;
+// Informal team target, not sourced from any official document — adjust here if it changes.
+const PLANTING_MONTHLY_TARGET_PER_VALLEY = 50;
+function monthlyPlantingSummary(mainRows){
+  const monthPrefix = new Date().toISOString().slice(0,7); // "YYYY-MM", calendar month
+  const byValley = {};
+  let total = 0;
+  for (const r of mainRows){
+    if (r.Action !== 'PLANTATION' || !r.Date || !r.Date.startsWith(monthPrefix)) continue;
+    const n = r.Total_Individuals || 0;
+    if (!n) continue;
+    const v = r.Valley || 'Unknown';
+    byValley[v] = (byValley[v]||0) + n;
+    total += n;
+  }
+  return { total, byValley };
 }
 function onDataUpdated(){
   const prevZone = document.getElementById('chartZone').value;
@@ -6079,27 +6089,17 @@ function onDataUpdated(){
   const cleaningByValleyText = valleyOrder.filter(v => cleaningSummary.byValley[v] != null)
     .map(v => `${v} ${cleaningSummary.byValley[v].toFixed(0)}%`).join(' · ') || 'no data yet';
 
-  const lastCutting = lastActionOfType(mainRows, ['CUTTING', 'MAINTENANCE']);
-  const lastPlantation = lastActionOfType(mainRows, 'PLANTATION');
-  // Pct_cleaned_end_of_day is always blank on this specific row for any session logged since
-  // 2026-08-25 (NRDS stopped collecting it — see data/live/README.md); fall back to
-  // latestUnitStatus()'s own hours-derived estimate for that zone, same source cleaningSummary
-  // above already uses, rather than showing a bare "?%" for every recent cutting/maintenance action.
-  const lastCuttingPct = lastCutting && lastCutting.Pct_cleaned_end_of_day !== ''
-    ? lastCutting.Pct_cleaned_end_of_day
-    : (lastCutting ? latestUnitStatus().get(lastCutting.Unit_Name) : null)?.pct?.toFixed(0);
-  const cuttingText = lastCutting
-    ? `${escapeHtml(lastCutting.Unit_Name)} (${escapeHtml(lastCutting.Valley)}) — ${lastCuttingPct != null ? lastCuttingPct : '?'}%`
-    : '—';
-  const plantationSpecies = lastPlantation ? (lastPlantation.Species_Planted||'').split(';').filter(Boolean).map(escapeHtml).join(', ') : '';
-  const plantationText = lastPlantation
-    ? `Last plantation: ${escapeHtml(lastPlantation.Unit_Name)} (${escapeHtml(lastPlantation.Valley)}) — ${plantationSpecies || 'no species recorded'}`
-    : 'No plantation recorded yet';
+  const plantingMonthly = monthlyPlantingSummary(mainRows);
+  const plantingMonthlyByValleyText = valleyOrder.map(v => {
+    const n = plantingMonthly.byValley[v] || 0;
+    const deficit = Math.max(0, PLANTING_MONTHLY_TARGET_PER_VALLEY - n);
+    return `${v} ${n}/${PLANTING_MONTHLY_TARGET_PER_VALLEY}${deficit>0 ? ' (−'+deficit+')' : ' ✓'}`;
+  }).join(' · ');
 
   let html = `<div class="grid3">
     <div class="stat"><div class="num">${totalActionsCount}</div><div class="lbl">total actions</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${actionBreakdownText}</div></div>
     <div class="stat"><div class="num">${cleaningSummary.overall != null ? cleaningSummary.overall.toFixed(0)+'%' : '—'}</div><div class="lbl">area-weighted cleaning %</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${cleaningByValleyText}</div></div>
-    <div class="stat"><div class="num" style="font-size:15px;">${cuttingText}</div><div class="lbl">last cleaning action (cutting / entretien): zone, valley & % cleaned</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${plantationText}</div></div>
+    <div class="stat"><div class="num">${plantingMonthly.total}</div><div class="lbl">planted this month · target ${PLANTING_MONTHLY_TARGET_PER_VALLEY}/valley/month</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${plantingMonthlyByValleyText}</div></div>
   </div>`;
   let priorityRanked = { plant: [], cut: [], maintain: [] };
   let priorityHtml = '';
@@ -9155,13 +9155,31 @@ function renderPriorityZonesDropdown(ranked){
 }
 
 let lastPlantingValleyFilter = 'all';
+let lastPlantingZoneFilter = new Set(); // empty = all zones within the selected valley
+let lastPlantingDetailsOpen = false;
+let lastPlantingDetailSort = { col: 'date', dir: 'desc' };
+let lastPlantingSummarySort = { col: 'totalIndividuals', dir: 'desc' };
 let lastCleaningValleyFilter = 'all';
 let lastCleaningZoneFilter = new Set(); // empty = all zones within the selected valley
 // Without this, every filter change re-renders the whole home page and the <details> element is
 // recreated fresh (closed by default) — same open/close persistence pattern as priorityDetailsOpen.
 let lastCleaningDetailsOpen = false;
 let lastRatLineCleaningValleyFilter = 'all';
-function setLastPlantingValley(v){ lastPlantingValleyFilter = v; onDataUpdated(); }
+function setLastPlantingValley(v){ lastPlantingValleyFilter = v; lastPlantingZoneFilter = new Set(); onDataUpdated(); }
+function setLastPlantingZones(selectEl){
+  lastPlantingZoneFilter = new Set([...selectEl.selectedOptions].map(o => o.value));
+  onDataUpdated();
+}
+function setLastPlantingDetailSort(col){
+  if (lastPlantingDetailSort.col === col) lastPlantingDetailSort.dir = lastPlantingDetailSort.dir === 'asc' ? 'desc' : 'asc';
+  else { lastPlantingDetailSort.col = col; lastPlantingDetailSort.dir = 'asc'; }
+  onDataUpdated();
+}
+function setLastPlantingSummarySort(col){
+  if (lastPlantingSummarySort.col === col) lastPlantingSummarySort.dir = lastPlantingSummarySort.dir === 'asc' ? 'desc' : 'asc';
+  else { lastPlantingSummarySort.col = col; lastPlantingSummarySort.dir = 'asc'; }
+  onDataUpdated();
+}
 function setLastCleaningValley(v){ lastCleaningValleyFilter = v; lastCleaningZoneFilter = new Set(); onDataUpdated(); }
 function setLastCleaningZones(selectEl){
   lastCleaningZoneFilter = new Set([...selectEl.selectedOptions].map(o => o.value));
@@ -9208,33 +9226,88 @@ function valleyFilterSelect(selected, onchangeFn){
   return `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">Valley: <select onchange="${onchangeFn}(this.value)" style="padding:2px 6px;font-size:12px;">${valleyOpts}</select></label>`;
 }
 
+// Rewritten 2026-08-26 as an interactive table (was a fixed "15 most recent" card list), same
+// pattern as renderLastCleaningDropdown(): valley → zone filter, a per-zone summary (now also
+// showing individuals planted this calendar month, not just the running total), a sortable
+// detail table, and open-state persistence across re-renders.
 function renderLastPlantingDropdown(mainRows){
-  const rows = mainRows
-    .filter(r => r.Action === 'PLANTATION' && r.Date && (lastPlantingValleyFilter==='all' || r.Valley===lastPlantingValleyFilter))
-    .sort((a,b) => new Date(b.Date) - new Date(a.Date))
-    .slice(0, 15);
-  const countLabel = rows.length ? `${rows.length} most recent` : 'no records yet';
+  const monthPrefix = new Date().toISOString().slice(0,7); // "YYYY-MM", calendar month
+
+  const valleyRows = mainRows.filter(r =>
+    r.Action === 'PLANTATION' && r.Date && r.Unit_Name &&
+    (lastPlantingValleyFilter==='all' || r.Valley===lastPlantingValleyFilter));
+
+  const zoneOptions = lastPlantingValleyFilter === 'all' ? [] : [...new Set(valleyRows.map(r => r.Unit_Name))].sort();
+  const rows = valleyRows.filter(r => lastPlantingZoneFilter.size === 0 || lastPlantingZoneFilter.has(r.Unit_Name));
+
   const valleySelect = valleyFilterSelect(lastPlantingValleyFilter, 'setLastPlantingValley');
-  const inner = rows.length
-    ? rows.map(r => {
-        const species = (r.Species_Planted||'').split(';').filter(Boolean);
-        const speciesHtml = species.length
-          ? species.map(s => `<span style="background:#edf5ed;border-radius:3px;padding:1px 5px;font-size:11.5px;">${escapeHtml(s)}</span>`).join(' ')
-          : `<span class="muted">—</span>`;
-        const nPlants = r.Total_Individuals > 0 ? `<b>${r.Total_Individuals}</b> plants` : '';
-        const nPeople = r.Number_of_Person ? `${escapeHtml(r.Number_of_Person)} ppl` : '';
-        return `<div style="display:flex;flex-wrap:wrap;row-gap:4px;align-items:flex-start;gap:10px;padding:7px 10px;margin-bottom:4px;background:#f7faf6;border-left:4px solid #2ca02c;border-radius:0 6px 6px 0;max-width:100%;">
-          <span style="min-width:82px;font-size:12px;color:#555;">${escapeHtml(r.Date)}</span>
-          <span style="min-width:90px;font-weight:600;font-size:13px;">${escapeHtml(r.Unit_Name||'—')} <span class="muted" style="font-weight:400;">(${escapeHtml(r.Valley||'—')})</span></span>
-          <span style="flex:1;min-width:120px;font-size:12.5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">${speciesHtml}</span>
-          <span class="muted" style="font-size:11.5px;white-space:nowrap;">${[nPlants,nPeople].filter(Boolean).join(' · ')}</span>
-          <span class="muted" style="font-size:11px;white-space:nowrap;">${escapeHtml(r.Name||'')}</span>
-        </div>`;
-      }).join('')
+  const zoneSelect = lastPlantingValleyFilter === 'all' ? '' : `
+    <label class="muted" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:8px;flex-wrap:wrap;">
+      Zone(s):
+      <select multiple onchange="setLastPlantingZones(this)" style="padding:2px 6px;font-size:12px;min-width:130px;height:${Math.min(6, Math.max(1, zoneOptions.length))*20}px;">
+        ${zoneOptions.map(z => `<option value="${escapeHtml(z)}" ${lastPlantingZoneFilter.has(z)?'selected':''}>${escapeHtml(z)}</option>`).join('')}
+      </select>
+      <span class="muted" style="font-size:11px;">ctrl/cmd-click for multiple — none selected = all zones in ${escapeHtml(lastPlantingValleyFilter)}</span>
+    </label>`;
+
+  const totalIndividuals = rows.reduce((s,r) => s + (r.Total_Individuals||0), 0);
+  const totalThisMonth = rows.filter(r => r.Date.startsWith(monthPrefix)).reduce((s,r) => s + (r.Total_Individuals||0), 0);
+  const countLabel = rows.length ? `${rows.length} action${rows.length===1?'':'s'} · ${totalIndividuals} plants · ${totalThisMonth} this month` : 'no records yet';
+
+  // Per-zone summary: total actions, cumulative individuals, individuals planted this calendar
+  // month specifically, and most recent planting date, for whichever zones are currently in scope.
+  const byZone = new Map();
+  for (const r of rows){
+    if (!byZone.has(r.Unit_Name)) byZone.set(r.Unit_Name, { valley:r.Valley, count:0, totalIndividuals:0, thisMonth:0, lastDate:r.Date });
+    const z = byZone.get(r.Unit_Name);
+    z.count++;
+    z.totalIndividuals += r.Total_Individuals || 0;
+    if (r.Date.startsWith(monthPrefix)) z.thisMonth += r.Total_Individuals || 0;
+    if (r.Date > z.lastDate) z.lastDate = r.Date;
+  }
+  const zoneSummaryData = [...byZone.entries()].map(([zone,z]) => ({ zone, valley:z.valley, count:z.count, totalIndividuals:z.totalIndividuals, thisMonth:z.thisMonth, lastDate:z.lastDate }));
+  function plantSummaryKey(r, col){
+    if (col==='zone') return r.zone; if (col==='valley') return r.valley||'';
+    if (col==='count') return r.count; if (col==='totalIndividuals') return r.totalIndividuals;
+    if (col==='thisMonth') return r.thisMonth; if (col==='lastDate') return r.lastDate;
+    return r.totalIndividuals;
+  }
+  const sortedSummary = sortByKey(zoneSummaryData, lastPlantingSummarySort, plantSummaryKey);
+  const summaryHtml = sortedSummary.length ? `<div class="table-scroll" style="margin-bottom:10px;max-height:180px;"><table class="preview"><thead><tr>
+      ${sortableTh('Zone','zone',lastPlantingSummarySort,'setLastPlantingSummarySort')}${sortableTh('Valley','valley',lastPlantingSummarySort,'setLastPlantingSummarySort')}${sortableTh('# actions','count',lastPlantingSummarySort,'setLastPlantingSummarySort')}${sortableTh('Total plants','totalIndividuals',lastPlantingSummarySort,'setLastPlantingSummarySort')}${sortableTh('This month','thisMonth',lastPlantingSummarySort,'setLastPlantingSummarySort')}${sortableTh('Last planting','lastDate',lastPlantingSummarySort,'setLastPlantingSummarySort')}
+    </tr></thead><tbody>${sortedSummary.map(z =>
+      `<tr><td><b>${escapeHtml(z.zone)}</b></td><td>${escapeHtml(z.valley)}</td><td>${z.count}</td><td>${z.totalIndividuals}</td><td>${z.thisMonth}</td><td>${escapeHtml(z.lastDate)}</td></tr>`
+    ).join('')}</tbody></table></div>` : '';
+
+  const detailData = rows.map(r => {
+    const species = (r.Species_Planted||'').split(';').filter(Boolean);
+    return {
+      date:r.Date, zone:r.Unit_Name, valley:r.Valley||'—',
+      speciesHtml: species.length
+        ? species.map(s => `<span style="background:#edf5ed;border-radius:3px;padding:1px 5px;font-size:11.5px;">${escapeHtml(s)}</span>`).join(' ')
+        : '<span class="muted">—</span>',
+      speciesSort: species.join(', '),
+      individuals: r.Total_Individuals || 0, people: +r.Number_of_Person || null, observer: r.Name || ''
+    };
+  });
+  function plantDetailKey(r, col){
+    if (col==='date') return r.date; if (col==='zone') return r.zone; if (col==='valley') return r.valley;
+    if (col==='species') return r.speciesSort; if (col==='individuals') return r.individuals;
+    if (col==='people') return r.people != null ? r.people : -1; if (col==='observer') return r.observer;
+    return r.date;
+  }
+  const sortedDetail = sortByKey(detailData, lastPlantingDetailSort, plantDetailKey);
+  const detailHtml = sortedDetail.length ? `<div class="table-scroll"><table class="preview"><thead><tr>
+      ${sortableTh('Date','date',lastPlantingDetailSort,'setLastPlantingDetailSort')}${sortableTh('Zone','zone',lastPlantingDetailSort,'setLastPlantingDetailSort')}${sortableTh('Valley','valley',lastPlantingDetailSort,'setLastPlantingDetailSort')}${sortableTh('Species','species',lastPlantingDetailSort,'setLastPlantingDetailSort')}${sortableTh('Individuals','individuals',lastPlantingDetailSort,'setLastPlantingDetailSort')}${sortableTh('People','people',lastPlantingDetailSort,'setLastPlantingDetailSort')}${sortableTh('Observer','observer',lastPlantingDetailSort,'setLastPlantingDetailSort')}
+    </tr></thead><tbody>${sortedDetail.map(r =>
+      `<tr><td>${escapeHtml(r.date)}</td><td><b>${escapeHtml(r.zone)}</b></td><td>${escapeHtml(r.valley)}</td>` +
+      `<td>${r.speciesHtml}</td><td>${r.individuals||'—'}</td><td>${r.people!=null?r.people:'—'}</td><td>${escapeHtml(r.observer)}</td></tr>`
+    ).join('')}</tbody></table></div>`
     : `<div class="muted" style="padding:8px 10px;">No plantation actions recorded yet.</div>`;
-  return `<details style="margin-top:8px;">
+
+  return `<details style="margin-top:8px;" ${lastPlantingDetailsOpen?'open':''} ontoggle="lastPlantingDetailsOpen=this.open">
     <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🌱 Last planting actions (${countLabel})</summary>
-    <div style="margin-top:8px;">${valleySelect}${inner}</div>
+    <div style="margin-top:8px;">${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}</div>
   </details>`;
 }
 
