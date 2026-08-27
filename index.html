@@ -1091,6 +1091,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div class="row" style="flex-wrap:wrap;gap:8px;">
         <button class="secondary" onclick="downloadManagementUnits()">⬇ Management Units (zones)</button>
         <button class="secondary" onclick="downloadRatStations()">⬇ Rat Stations</button>
+        <button class="secondary" onclick="downloadManagementUnitHistory()">⬇ Management Unit History (Butaud + edits)</button>
       </div>
     </div>
     </details>
@@ -1803,7 +1804,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   <div class="card">
     <h2>Edit Management Unit — historical data (Butaud survey)</h2>
-    <div class="hint">Every field here comes from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here.</div>
+    <div class="hint">Every field here comes from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way). Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here.</div>
     <div class="row" style="margin-top:10px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap;">
       <span id="editHistValleySelectWrap"></span>
       <button class="secondary" id="editHistResetBtn" onclick="resetEditHistChanges()" disabled>Reset changes</button>
@@ -2148,12 +2149,25 @@ let enriched = null;
 let pastData = null;
 let pastDataBase = null;
 let pastDataOverrides = new Map(); // 'Valley||Nom' -> partial override fields (same keys as pastData rows)
+const EMPTY_HIST_FIELDS = { Site:null, Surface2D:null, Surface3D:null, Veg2023:null, Veg2024:null, Veg2025:null,
+  SB2023:null, SB2024:null, SB2025:null, Plant2023:null, Plant2024:null, Plant2025:null };
 function applyPastDataOverrides(){
-  if (!pastDataBase) { pastData = null; return; }
-  pastData = pastDataBase.map(u => {
+  const base = pastDataBase || [];
+  const merged = base.map(u => {
     const ov = pastDataOverrides.get(u.Valley+'||'+u.Nom);
     return ov ? { ...u, ...ov } : u;
   });
+  // A zone with a saved override but no Butaud baseline row (e.g. a brand-new management unit drawn
+  // via "Add Elements" and then filled in via "Edit Management Unit") still needs a full pastData
+  // row of its own — otherwise its saved historical data would sit in pastDataOverrides but never
+  // reach pastUnitLookupMap()/zonePriorityData()/the map's historical layers/the τ-check tool, all of
+  // which read pastData, not pastDataOverrides directly.
+  const baseKeys = new Set(base.map(u => u.Valley+'||'+u.Nom));
+  for (const ov of pastDataOverrides.values()){
+    if (baseKeys.has(ov.Valley+'||'+ov.Nom)) continue;
+    merged.push({ ...EMPTY_HIST_FIELDS, ...ov });
+  }
+  pastData = base.length || merged.length ? merged : null;
 }
 
 /* ---------------- Offline submission queue (Habitat Restoration / Dératisation / PFF) ----------------
@@ -2739,6 +2753,7 @@ function _applyNewElementsData(data){
   populateValleyDropdowns();
   if (enriched) onDataUpdated();
   if (leafletMap) renderMap(false);
+  refreshEditHistViewIfOpen(); // a newly-drawn zone must show up immediately if this view happens to be open
 }
 /* Appends one batch of drawn rows to in-memory state without clearing first.
  * Called right after offline queueing so the element is immediately usable
@@ -2770,6 +2785,7 @@ function applyNewElementLocally(rows){
   populateValleyDropdowns();
   if (enriched) onDataUpdated();
   if (leafletMap) renderMap(false);
+  refreshEditHistViewIfOpen();
 }
 async function fetchNewElements(){
   try {
@@ -5572,7 +5588,7 @@ async function fetchManagementUnitOverrides(){
   }
   applyPastDataOverrides();
   if (dataLoaded.ref && dataLoaded.habitat) onDataUpdated();
-  if (document.getElementById('editHistView') && document.getElementById('editHistView').style.display !== 'none') renderEditManagementUnitView();
+  refreshEditHistViewIfOpen();
 }
 function subscribeManagementUnitOverrides(){
   fetchManagementUnitOverrides();
@@ -5580,9 +5596,12 @@ function subscribeManagementUnitOverrides(){
     .on('postgres_changes', { event: '*', schema: 'public', table: 'management_unit_overrides' }, () => fetchManagementUnitOverrides())
     .subscribe();
 }
-// Supabase row (snake_case) -> pastData field names (PascalCase, matches parsePastDataWorkbook()'s output)
+// Supabase row (snake_case) -> pastData field names (PascalCase, matches parsePastDataWorkbook()'s
+// output). Includes Nom/Valley (not just the data fields) so applyPastDataOverrides() can build a
+// full synthetic pastData row from an override alone, for zones with no Butaud baseline row.
 function managementUnitOverrideRowToFields(r){
   return {
+    Nom: r.nom, Valley: r.valley,
     Site: r.site, Surface2D: r.surface2d, Surface3D: r.surface3d,
     Veg2023: r.veg2023, Veg2024: r.veg2024, Veg2025: r.veg2025,
     SB2023: r.sb2023, SB2024: r.sb2024, SB2025: r.sb2025,
@@ -6067,10 +6086,13 @@ function downloadCSV(filename, rows, fields){
 /* Exports tables.habitat/sectionEspece/deratisation/sectionChecks (built by fetchHabitatRestoration()/
    fetchDeratisation() with the exact original NRDS column names) as a pair of CSVs each, byte-for-byte
    in the same shape/filenames as the original "DATA DOWNLOADED from NRDS" exports — but reflecting every
-   live submission. Each click downloads both the main file and its child (species / checks) file. */
+   live submission. Each click downloads both the main file and its child (species / checks) file.
+   The 3 "% cleaned"/"% evaluation" columns were dropped 2026-08-25 in favor of "Number of Hours" (see
+   nrdsRowToHabitatRow() and data/live/README.md) — this export mirrors NRDS's current template shape,
+   not the pre-08-25 one, so it lists "Number of Hours" instead of the 3 now-permanently-empty columns. */
 function downloadOriginalFormat(which){
   if (which === 'habitat'){
-    downloadCSV('Habitat Restoration.csv', tables.habitat||[], ['Identifier','Date','Name','Valley','Unit Name','Action','Type of day work','Number of Person','Précision Localisation (rat station name)','% cleaned at the end of the day','% cleaned at arrival','% evaluation','Comment']);
+    downloadCSV('Habitat Restoration.csv', tables.habitat||[], ['Identifier','Date','Name','Valley','Unit Name','Action','Type of day work','Number of Person','Number of Hours','Précision Localisation (rat station name)','Rat line','Cleaned','Comment']);
     downloadCSV('Section - Espèce.csv', tables.sectionEspece||[], ['Identifier','Espèce','Number']);
   } else {
     downloadCSV('Dératisation.csv', tables.deratisation||[], ['Identifier','Date','Observer','Zone','Passage']);
@@ -6228,6 +6250,17 @@ function downloadRatStations(){
   if (!rows.length){ alert('Reference data not loaded yet.'); return; }
   const allKeys = [...new Set(rows.flatMap(r => Object.keys(r)))];
   downloadCSV('rat_stations.csv', rows, allKeys);
+}
+// The effective historical dataset (embedded Butaud workbook + any edits made via "Edit Management
+// Unit"), same source the map's historical layers/priority scores/tau-check tool all read — kept as
+// its own download rather than folded into "Management Units (zones)" above, since that one is the
+// live NRDS-synced geometry/reference table (a different dataset with different columns).
+function downloadManagementUnitHistory(){
+  const rows = pastData || [];
+  if (!rows.length){ alert('Historical dataset not loaded yet.'); return; }
+  const fields = ['Valley','Nom','Site','Surface2D','Surface3D','Veg2023','Veg2024','Veg2025',
+    'SB2023','SB2024','SB2025','Plant2023','Plant2024','Plant2025'];
+  downloadCSV('management_unit_history.csv', rows, fields);
 }
 
 /* ---------------- build button ---------------- */
@@ -9170,18 +9203,45 @@ async function saveEditHistChanges(){
     statusEl.innerHTML = `<span class="err">Could not save: ${escapeHtml(err.message || String(err))}${!navigator.onLine ? ' (you appear to be offline)' : ''}</span>`;
   }
 }
+// Every management unit the app currently knows about: every live zone in tables.managementUnit
+// (static NRDS export + user-drawn "Add Elements" zones — new ones show up here with blank
+// historical fields, fully editable) plus any zone that exists only in the historical Butaud
+// dataset with no matching live geometry (legacy edge case, kept so no historical row is dropped).
+function allKnownManagementUnits(){
+  const map = new Map();
+  for (const u of (tables.managementUnit||[])){
+    if (!u.Nom) continue;
+    map.set(u.Vallee+'||'+u.Nom, { Nom: u.Nom, Valley: u.Vallee });
+  }
+  for (const u of (pastData||[])){
+    const k = u.Valley+'||'+u.Nom;
+    if (!map.has(k)) map.set(k, { Nom: u.Nom, Valley: u.Valley });
+  }
+  return [...map.values()];
+}
+function refreshEditHistViewIfOpen(){
+  const view = document.getElementById('editHistView');
+  if (!view || view.style.display === 'none') return;
+  // Never clobber in-progress unsaved edits from a background event (a realtime override update
+  // from someone else, or a zone drawn elsewhere) — the user's next Save/Reset/filter change will
+  // pick up the fresh state anyway.
+  if (editHistDirtyRows.size) return;
+  renderEditManagementUnitView();
+}
 function renderEditManagementUnitView(){
   const wrapEl = document.getElementById('editHistValleySelectWrap');
   if (wrapEl) wrapEl.innerHTML = valleyFilterSelect(editHistValleyFilter, 'setEditHistValley');
   const container = document.getElementById('editHistTableContainer');
   if (!container) return;
-  if (!pastDataBase){
-    container.innerHTML = '<div class="muted">Embedded historical dataset unavailable.</div>';
+  const pastLookup = pastUnitLookupMap();
+  const allUnits = allKnownManagementUnits();
+  if (!allUnits.length){
+    container.innerHTML = '<div class="muted">No management units loaded yet.</div>';
     return;
   }
-  const units = (pastData || pastDataBase)
+  const units = allUnits
     .filter(u => editHistValleyFilter === 'all' || u.Valley === editHistValleyFilter)
-    .slice()
+    .map(u => ({ ...EMPTY_HIST_FIELDS, ...(pastLookup.get(u.Valley+'||'+u.Nom)||{}), Nom: u.Nom, Valley: u.Valley }))
     .sort((a,b) => (a.Valley+'||'+a.Nom).localeCompare(b.Valley+'||'+b.Nom));
   editHistRowsMeta = units.map(u => ({ nom: u.Nom, valley: u.Valley }));
   const rowsHtml = units.map((u,i) => `<tr data-row-index="${i}">
