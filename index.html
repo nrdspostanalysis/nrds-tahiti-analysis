@@ -7549,6 +7549,18 @@ function isNewerReading(r, cur){
   if (rTime !== curTime) return rTime > curTime;
   return +r.Pct_cleaned_end_of_day > cur.pct;
 }
+// Per-zone CUTTING/MAINTENANCE action count + most recent date, shown in the map's "Cleaning status
+// by zone" popups alongside whatever %/estimate they already display — same source rows as "Last
+// cleaning actions", unfiltered by date range since it's just a "how much has this zone seen" summary.
+function zoneCleaningActionSummary(unitName){
+  let count = 0, lastDate = null;
+  for (const r of enriched.mainRows){
+    if ((r.Action !== 'CUTTING' && r.Action !== 'MAINTENANCE') || r.Unit_Name !== unitName || !r.Date) continue;
+    count++;
+    if (!lastDate || r.Date > lastDate) lastDate = r.Date;
+  }
+  return { count, lastDate };
+}
 function latestUnitStatus(dateFrom, dateTo){
   const map = new Map();
   for (const r of enriched.mainRows){
@@ -8432,9 +8444,11 @@ function renderMap(shouldFit){
         const nrdsTxt = !res.st ? 'no data'
           : res.usedFallback ? `${res.st.pct}% (single zone-level action, no station resolved, weight ${res.wNrdsPct.toFixed(0)}%)`
           : `${res.st.pct.toFixed(0)}% (${res.stationsWithData}/${res.stationsTotal} stations, ${(res.coverage*100).toFixed(0)}% coverage, weight ${res.wNrdsPct.toFixed(0)}%)`;
+        const actionSummary = zoneCleaningActionSummary(u['Nom']);
         html += `<br><b>Combined current estimate: ${res.estimate.toFixed(0)}%</b>` +
           (res.hv ? `<br>historical ${HIST_PERIOD_LABEL[res.hv.period]}: ${res.hv.raw} (${res.hv.pct}%, weight ${res.wHistPct.toFixed(0)}%)` : '<br>historical: no data') +
-          `<br>NRDS: ${nrdsTxt}`;
+          `<br>NRDS: ${nrdsTxt}` +
+          `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
         combinedBreakdown.push({ unit: u['Nom'], valley: u['Vallee'], res });
       } else {
         html += '<br><i>no historical or NRDS data for this unit</i>';
@@ -8499,14 +8513,18 @@ function renderMap(shouldFit){
     } else if (histZoneMode === 'cleaning'){
       const hu = pastUnitLookup.get(u['Vallee']+'||'+u['Nom']);
       const hv = latestHistValue(hu, SB_WEIGHTS, 'SB');
+      const actionSummary = zoneCleaningActionSummary(u['Nom']);
       fillColor = hv ? pctColor(hv.pct) : '#d8d8d8';
       fillOpacity = 0.75;
       html += hv ? `<br>Understory management (historical, ${HIST_PERIOD_LABEL[hv.period]}): <b>${hv.raw}</b> (${hv.pct}%)` : '<br><i>no historical data for this unit</i>';
+      html += `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
     } else if (mapLayers.has('cleaning')){
       const st = statusMap.get(u['Nom']);
+      const actionSummary = zoneCleaningActionSummary(u['Nom']);
       fillColor = st ? pctColor(st.pct) : '#d8d8d8';
       fillOpacity = 0.75;
       html += st ? `<br>Cleaning % (latest survey ${st.date}): <b>${st.pct}%</b>${st.comment ? `<br><span class="muted">📝 ${escapeHtml(st.comment)}</span>` : ""}` : '<br><i>no cleaning % data</i>';
+      html += `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
     }
     for (const ringSet of rings){
       const poly = L.polygon(ringSet, { color: borderColor, weight: borderWeight, fillColor, fillOpacity });
