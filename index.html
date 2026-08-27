@@ -143,8 +143,8 @@
     color:#fff;border-color:var(--metal-edge);
   }
 
-  /* Big tappable home-page navigation buttons (Map / Chart analysis / Temporal trends) — each opens
-     its section as a full separate view (see showMapView/showAnalysisView/showPastDataView), same
+  /* Big tappable home-page navigation buttons (Map / Chart analysis / etc.) — each opens
+     its section as a full separate view (see showMapView/showAnalysisView/showPriorityView/etc.), same
      "← Back to dashboard" pattern as the Submit page, instead of a long scroll of stacked cards.
      Sized for comfortable thumb-tapping on a phone. */
   .nav-tile{
@@ -1038,18 +1038,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </span>
   </button>
 
-  <button type="button" class="nav-tile" onclick="showPastDataView()">
-    <span class="nav-tile-icon">📈</span>
-    <span class="nav-tile-text">
-      <span class="nav-tile-title">4. Temporal trends</span>
-      <span class="nav-tile-sub">Historical comparison &amp; dératisation analysis</span>
-    </span>
-  </button>
-
   <button type="button" class="nav-tile" onclick="showPriorityView()">
     <span class="nav-tile-icon">📍</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">5. Priority zones to work on</span>
+      <span class="nav-tile-title">4. Priority zones to work on</span>
       <span class="nav-tile-sub">Planting, cutting &amp; maintenance — three independent rankings</span>
     </span>
   </button>
@@ -1057,7 +1049,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button type="button" class="nav-tile" onclick="showLastPlantingView()">
     <span class="nav-tile-icon">🌱</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">6. Last planting actions</span>
+      <span class="nav-tile-title">5. Last planting actions</span>
       <span class="nav-tile-sub" id="lastPlantingTileSub">Every plantation logged, by valley &amp; zone</span>
     </span>
   </button>
@@ -1065,7 +1057,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button type="button" class="nav-tile" onclick="showLastCleaningView()">
     <span class="nav-tile-icon">🧹</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">7. Last cleaning actions</span>
+      <span class="nav-tile-title">6. Last cleaning actions</span>
       <span class="nav-tile-sub" id="lastCleaningTileSub">Every cutting/maintenance session, by valley &amp; zone</span>
     </span>
   </button>
@@ -1073,7 +1065,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button type="button" class="nav-tile" onclick="showLastRatLineView()">
     <span class="nav-tile-icon">🧹✨</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">8. Last rat line cleaning</span>
+      <span class="nav-tile-title">7. Last rat line cleaning</span>
       <span class="nav-tile-sub">Per-line "Cleaned" flag, separate from zone cleaning</span>
     </span>
   </button>
@@ -1081,8 +1073,16 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button type="button" class="nav-tile" onclick="showCuttingVsMaintenanceView()">
     <span class="nav-tile-icon">🌿</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">9. Cutting vs plantation maintenance</span>
+      <span class="nav-tile-title">8. Cutting vs plantation maintenance</span>
       <span class="nav-tile-sub">Compared side by side, sessions per month</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showRepeatPairsView()">
+    <span class="nav-tile-icon">🔁</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">9. Repeat-visit pairs — τ check</span>
+      <span class="nav-tile-sub">Empirical regrowth-rate diagnostic for the recency-decay τ</span>
     </span>
   </button>
 
@@ -1896,7 +1896,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <span class="muted">Applies to points and the live cleaning/bait-consumption layers — not to the historical/combined overlays below, which have their own time-weighting.</span>
     </div>
     <div class="row" id="cleaningHistRow" style="margin-bottom:12px;display:none;">
-      <span class="muted">Historical data (from "4. Temporal trends"):</span>
+      <span class="muted">Historical data (Butaud surveys):</span>
       <label class="muted">
         <input type="checkbox" id="histCleaningToggle" onchange="toggleHistCleaning(this.checked)">
         Historical cleaning %
@@ -1908,7 +1908,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </div>
     <div id="hoursRateBox"></div>
     <div class="row" id="plantingHistRow" style="margin-bottom:12px;display:none;">
-      <span class="muted">Historical data (from "4. Temporal trends"):</span>
+      <span class="muted">Historical data (Butaud surveys):</span>
       <label class="muted">
         <input type="checkbox" id="histPlantingToggle" onchange="toggleHistPlanting(this.checked)">
         Historical plantings
@@ -1990,45 +1990,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 </div>
 
-<div class="wrap" id="pastDataView" style="display:none;">
+<div class="wrap" id="repeatPairsView" style="display:none;">
 
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
 
-  <div class="card" id="pastDataCard">
-    <h2>4. Temporal trends</h2>
-    <span id="pastDataStatus" class="muted">Waiting for live data to finish loading…</span>
-    <div id="pastDataContent" style="display:none;">
-      <div id="pastHistSection">
-        <details class="collapsible" open>
-          <summary>🌿 Habitat Restoration: historical comparison<span class="caret">▾</span></summary>
-          <div class="coll-body">
-            <div class="hint">Compares the historical surveys (August 2023, August 2024 and December 2025, automatically integrated into the app) with the current NRDS data, unit by unit. Percentages are area-weighted averages, using the same weights as the "Total" sheet of the original file (aucune=0%, debutee/rares=10%, un tiers=33%, moitie=50%, effectuee=100%).</div>
-            <div class="row" style="margin-bottom:10px;">
-              <button class="secondary" onclick="renderPastDataComparison()">Generate historical comparison</button>
-              <label class="muted">
-                <input type="checkbox" id="pastDataCombinedToggle" onchange="togglePastDataCombined(this.checked)">
-                Add combined estimate (historical + NRDS, recency-weighted)
-              </label>
-            </div>
-            <div id="pastDataCharts"></div>
-            <div id="pastDataCombinedBox" class="hint" style="display:none;margin-top:8px;"></div>
-            <div class="table-scroll" style="margin-top:12px;"><table class="preview" id="pastDataTable"></table></div>
-          </div>
-        </details>
-      </div>
-      <details class="collapsible">
-        <summary>🐀 Dératisation: temporal analysis<span class="caret">▾</span></summary>
-        <div class="coll-body">
-          <div class="hint">Monthly trends in rat activity (Conso 0–4), zero-activity rate, patrol frequency by valley, and a ranking of rat lines from most to least active across all recorded patrols.</div>
-          <button class="secondary" onclick="renderDeratTemporalAnalysis()">Generate dératisation analysis</button>
-          <div id="deratTemporalCharts" style="margin-top:14px;"></div>
-        </div>
-      </details>
-    </div>
-  </div>
-
   <div class="card" id="repeatPairsCard">
-    <h2>Repeat-visit pairs — empirical τ check</h2>
+    <h2>9. Repeat-visit pairs — empirical τ check</h2>
     <div class="hint">Diagnostic for the recency-decay τ used in the Combined Cleaning Estimate (τ_Miconia / τ_Spathodea,
       editable in the "Combined current estimate" calc box on the map). When the same zone has two cleaning sessions
       logged back to back, the drop from the first visit's "end of day" % to the second visit's "arrival" % — over the
@@ -2044,7 +2011,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="wrap" id="priorityView" style="display:none;">
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
   <div class="card">
-    <h2>5. Priority zones to work on</h2>
+    <h2>4. Priority zones to work on</h2>
     <div class="hint">Three independent rankings for deciding which zones to work on next — planting, cutting, and maintenance — never blended into one number.</div>
     <div id="priorityViewContent"></div>
   </div>
@@ -2053,7 +2020,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="wrap" id="lastPlantingView" style="display:none;">
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
   <div class="card">
-    <h2>6. Last planting actions</h2>
+    <h2>5. Last planting actions</h2>
     <div class="hint">Every PLANTATION action recorded, filterable by valley and zone, with a per-zone summary.</div>
     <div id="lastPlantingViewContent"></div>
   </div>
@@ -2062,7 +2029,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="wrap" id="lastCleaningView" style="display:none;">
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
   <div class="card">
-    <h2>7. Last cleaning actions</h2>
+    <h2>6. Last cleaning actions</h2>
     <div class="hint">Every CUTTING/MAINTENANCE action recorded, filterable by valley and zone, with a per-zone summary.</div>
     <div id="lastCleaningViewContent"></div>
   </div>
@@ -2071,7 +2038,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="wrap" id="lastRatLineView" style="display:none;">
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
   <div class="card">
-    <h2>8. Last rat line cleaning</h2>
+    <h2>7. Last rat line cleaning</h2>
     <div class="hint">Rat-line cleaning is logged separately from zone-level cleaning actions (a per-line YES/NO "Cleaned" flag).</div>
     <div id="lastRatLineViewContent"></div>
   </div>
@@ -2080,7 +2047,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="wrap" id="cuttingVsMaintenanceView" style="display:none;">
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
   <div class="card">
-    <h2>9. Cutting vs plantation maintenance — compared</h2>
+    <h2>8. Cutting vs plantation maintenance — compared</h2>
     <div class="hint">CUTTING and MAINTENANCE both log a "% cleaned" per session but target different work — kept separate here rather than blended into one number.</div>
     <div id="cuttingVsMaintenanceViewContent"></div>
   </div>
@@ -5573,7 +5540,7 @@ function onPffDetailsToggle(open){
   if (pffPickerEntry) pffPickerEntry.map.invalidateSize();
 }
 // Every submission form is its own full view on mobile (same "big button + back" pattern as Map/Chart
-// analysis/Temporal trends below) instead of 7 stacked collapsible cards. Content is unchanged, just
+// analysis below) instead of 7 stacked collapsible cards. Content is unchanged, just
 // relocated, with each form's own <details> now permanently open since it's the page's only content.
 function showHrView(){
   document.getElementById('submitView').style.display = 'none';
@@ -5629,9 +5596,9 @@ function showAeEntryView(){
   if (location.hash !== '#form-ae') location.hash = 'form-ae';
   window.scrollTo(0,0);
 }
-// Map / Chart analysis / Temporal trends are full separate views on mobile (same "big button + back
-// to dashboard" pattern as Submit) instead of three long cards stacked on the home page. Their content
-// (#mapCard/#analysisCard/#pastDataCard) is unchanged — only which wrapper shows it moved.
+// Map / Chart analysis are full separate views on mobile (same "big button + back
+// to dashboard" pattern as Submit) instead of long cards stacked on the home page. Their content
+// (#mapCard/#analysisCard) is unchanged — only which wrapper shows it moved.
 function showMapView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('mapView').style.display = '';
@@ -5650,16 +5617,16 @@ function showAnalysisView(){
   if (location.hash !== '#analysis') location.hash = 'analysis';
   window.scrollTo(0,0);
 }
-function showPastDataView(){
+function showRepeatPairsView(){
   document.getElementById('homeView').style.display = 'none';
-  document.getElementById('pastDataView').style.display = '';
-  if (location.hash !== '#trends') location.hash = 'trends';
+  document.getElementById('repeatPairsView').style.display = '';
+  if (location.hash !== '#repeat-pairs') location.hash = 'repeat-pairs';
   window.scrollTo(0,0);
 }
 // Priority zones / last planting / last cleaning / last rat line / cutting-vs-maintenance were
 // previously <details> dropdowns embedded in the home "Live data" card — moved 2026-08-26 to full
-// separate views (same "big button + back to dashboard" pattern as Map/Chart analysis/Temporal
-// trends above) so the home page stays a short dashboard instead of a long scroll. Their content
+// separate views (same "big button + back to dashboard" pattern as Map/Chart analysis
+// above) so the home page stays a short dashboard instead of a long scroll. Their content
 // (#priorityViewContent etc.) is filled by onDataUpdated() same as before, just into a different
 // container.
 function showPriorityView(){
@@ -5697,7 +5664,7 @@ function showHomeView(){
   SUBMIT_FORM_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('mapView').style.display = 'none';
   document.getElementById('analysisView').style.display = 'none';
-  document.getElementById('pastDataView').style.display = 'none';
+  document.getElementById('repeatPairsView').style.display = 'none';
   document.getElementById('priorityView').style.display = 'none';
   document.getElementById('lastPlantingView').style.display = 'none';
   document.getElementById('lastCleaningView').style.display = 'none';
@@ -5727,11 +5694,12 @@ function showHomeView(){
 // already running (e.g. the browser's own Back/Forward buttons on a phone), which only ever fires
 // 'hashchange', not a full reload.
 const HASH_VIEW_FNS = {
-  '#submit': showSubmitView, '#map': showMapView, '#analysis': showAnalysisView, '#trends': showPastDataView,
+  '#submit': showSubmitView, '#map': showMapView, '#analysis': showAnalysisView,
   '#form-hr': showHrView, '#form-dr': showDrView, '#form-pff': showPffFormView, '#form-ibs': showIbsView,
   '#form-bo': showBoView, '#form-at': showAtView, '#form-ae': showAeEntryView,
   '#priority': showPriorityView, '#last-planting': showLastPlantingView, '#last-cleaning': showLastCleaningView,
   '#rat-line-cleaning': showLastRatLineView, '#cutting-vs-maintenance': showCuttingVsMaintenanceView,
+  '#repeat-pairs': showRepeatPairsView,
 };
 // Deferred via setTimeout, not called synchronously here: some view functions (e.g. showMapView,
 // which reads `leafletMap`) reference `let`-declared variables that appear further down this same
@@ -6149,9 +6117,9 @@ function downloadRatStations(){
 // change event. Filter dropdowns are rebuilt from scratch (the set of zones/stations may have grown), so
 // the user's current selection is captured beforehand and restored afterward if it's still valid —
 // otherwise an in-progress filter silently jumped back to "All" every time someone else added an action.
-// Area-weighted average of latestUnitStatus()'s "% cleaned at end of day" per zone, same convention as
-// weightedPctNowFromNRDS() (units with no cleaning record yet are excluded from both sides, not treated
-// as 0%) — generalized here to also return the all-valleys overall figure, not just one valley at a time.
+// Area-weighted average of latestUnitStatus()'s "% cleaned at end of day" per zone (units with no
+// cleaning record yet are excluded, not treated as 0%) — also returns the all-valleys overall figure,
+// not just one valley at a time.
 function weightedCleaningPctSummary(){
   const statusMap = latestUnitStatus();
   const perValley = {};
@@ -6270,18 +6238,6 @@ function onDataUpdated(){
   renderPreview(mainRows);
   renderMap();
   if (currentChartViews.size) rerenderAllCharts();
-
-  document.getElementById('pastDataCard').style.display = '';
-  document.getElementById('pastDataContent').style.display = '';
-  const pdStatus = document.getElementById('pastDataStatus');
-  const pastHistSection = document.getElementById('pastHistSection');
-  if (pastData){
-    pdStatus.textContent = '';
-    pastHistSection.style.display = '';
-  } else {
-    pdStatus.textContent = 'Note: embedded historical habitat restoration data unavailable. Dératisation analysis below is still available.';
-    pastHistSection.style.display = 'none';
-  }
 }
 
 /* ---------------- chart filters (valley -> zone -> rat station -> date range) ---------------- */
@@ -8812,7 +8768,7 @@ function renderMap(shouldFit){
   leafletMap.invalidateSize();
 }
 
-/* ---------------- Temporal trends ---------------- */
+/* ---------------- historical-data helpers (used by map layers & priority scoring) ---------------- */
 function normalizeCategory(s){
   if (s == null) return '';
   return String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
@@ -9713,7 +9669,7 @@ function renderZonePriority(valley, rows){
 
   let html = `<label class="muted" style="display:block;margin-bottom:8px;">
     <input type="checkbox" id="zonePriorityHistToggle" ${includeHist?'checked':''} onchange="toggleZonePriorityHistorical(this.checked)">
-    Include historical data (from "4. Temporal trends") in the ranking below
+    Include historical data (Butaud surveys) in the ranking below
   </label>`;
   html += `<div class="hint" style="margin-bottom:6px;">Zone priority overview, dirtiest/least-recently-assessed zones first — one merged view per zone: the small dots
     are every individual NRDS session recorded there (more recent = larger/darker, hover for date and value) — note this only counts sessions where a
@@ -10090,59 +10046,6 @@ function renderPffColonyCalcBox(colonies){
   return html;
 }
 
-function weightedPctFromPastData(valley, field, weights){
-  if (!pastData) return null;
-  let totalArea = 0, sum = 0;
-  for (const u of pastData){
-    if (u.Valley !== valley) continue;
-    const cat = normalizeCategory(u[field]);
-    if (!cat || !(cat in weights) || weights[cat] == null) continue;
-    const area = +u.Surface2D || 0;
-    totalArea += area; sum += area * weights[cat];
-  }
-  return totalArea ? sum / totalArea : null;
-}
-function weightedPctNowFromNRDS(valley){
-  const statusMap = latestUnitStatus();
-  let totalArea = 0, sum = 0;
-  for (const u of tables.managementUnit){
-    if (u['Vallee'] !== valley) continue;
-    const st = statusMap.get(u['Nom']);
-    if (!st) continue;
-    const area = +u['Surface'] || 0;
-    totalArea += area; sum += area * st.pct;
-  }
-  return totalArea ? sum / totalArea : null;
-}
-// NRDS has no "% area planted" field (unlike "% cleaned"), only counts of individuals planted per action.
-// As the closest honest area-weighted equivalent, this computes the % of each valley's total managed area
-// (across ALL units, not just historical ones) that belongs to units with at least one NRDS-recorded
-// planting action — i.e. "coverage of active planting", not "degree of completion" like the historical %.
-function plantingActivityByUnit(){
-  const map = new Map();
-  for (const r of enriched.mainRows){
-    if (!r.Unit_Name || !(r.Total_Individuals > 0)) continue;
-    if (!map.has(r.Unit_Name)) map.set(r.Unit_Name, { totalIndividuals: 0 });
-    map.get(r.Unit_Name).totalIndividuals += r.Total_Individuals;
-  }
-  return map;
-}
-function weightedPlantingCoverageNowFromNRDS(valley){
-  const activity = plantingActivityByUnit();
-  let totalArea = 0, sum = 0;
-  for (const u of tables.managementUnit){
-    if (u['Vallee'] !== valley) continue;
-    const area = +u['Surface'] || 0;
-    if (!area) continue;
-    totalArea += area;
-    if (activity.has(u['Nom'])) sum += area * 100;
-  }
-  return totalArea ? sum / totalArea : null;
-}
-function totalIndividualsPlantedByValley(valley){
-  return enriched.mainRows.filter(r => r.Valley === valley).reduce((s,r) => s + (r.Total_Individuals||0), 0);
-}
-
 // opts.maxVal/opts.unit let this draw a plain-count trend (e.g. sessions/month) instead of the default
 // 0-100% scale — every existing caller omits opts and gets the exact original 0-100%-by-25 behavior.
 function drawTrendChart(series, categories, opts){
@@ -10183,262 +10086,6 @@ function drawTrendChart(series, categories, opts){
   return svg;
 }
 
-function buildPastDataMerged(){
-  const statusMap = latestUnitStatus();
-  const nrdsByUnit = new Map();
-  for (const r of enriched.mainRows){
-    if (!r.Unit_Name) continue;
-    if (!nrdsByUnit.has(r.Unit_Name)) nrdsByUnit.set(r.Unit_Name, { count:0, totalIndividuals:0 });
-    const e = nrdsByUnit.get(r.Unit_Name);
-    e.count++; e.totalIndividuals += r.Total_Individuals;
-  }
-  return pastData.map(u => {
-    const nrds = nrdsByUnit.get(u.Nom);
-    const st = statusMap.get(u.Nom);
-    const combinedRes = combinedCleaningEstimate(u, u.Nom, st);
-    return {
-      Nom: u.Nom, Valley: u.Valley, Site: u.Site,
-      Surface2D: u.Surface2D!=null ? Math.round(u.Surface2D) : '',
-      Surface3D: u.Surface3D!=null ? Math.round(u.Surface3D) : '',
-      SB2023: u.SB2023||'', SB2024: u.SB2024||'', SB2025: u.SB2025||'',
-      Plant2023: u.Plant2023||'', Plant2024: u.Plant2024||'', Plant2025: u.Plant2025||'',
-      NRDS_Actions: nrds ? nrds.count : 0,
-      NRDS_Individuals_Planted: nrds ? nrds.totalIndividuals : 0,
-      NRDS_Latest_Cleaning_Pct: st ? st.pct+'%' : '',
-      NRDS_Latest_Date: st ? st.date : '',
-      Combined_Cleaning_Estimate: combinedRes.estimate != null ? combinedRes.estimate.toFixed(0)+'%' : '',
-      _combinedRes: combinedRes
-    };
-  });
-}
-
-let pastDataCombinedMode = false;
-function togglePastDataCombined(checked){
-  pastDataCombinedMode = checked;
-  renderPastDataComparison();
-}
-
-/* ---- Dératisation temporal analysis helpers ---- */
-
-// Generic line-trend SVG chart. series = [{label, color, values:[number|null,...], popupKey, counts:[]}]
-// yMax can be 4 (Conso scale) or 100 (percent); yUnit appended to axis labels.
-function drawLineTrendChart(series, categories, yMax, yUnit){
-  const W = 460, H = 260, mL = 48, mR = 18, mT = 18, mB = 48;
-  const xScale = i => categories.length <= 1 ? mL+(W-mL-mR)/2 : mL + i/(categories.length-1)*(W-mL-mR);
-  const yScale = v => H-mB - v/yMax*(H-mT-mB);
-  const step = yMax === 4 ? 1 : 25;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
-  for (let v=0; v<=yMax; v+=step){
-    const y = yScale(v);
-    svg += svgEl('line',{x1:mL,x2:W-mR,y1:y,y2:y,stroke:'#e3e8e2','stroke-width':1});
-    svg += svgEl('text',{x:mL-6,y:y+4,'text-anchor':'end','font-size':10,fill:'#6b7569'}, v+yUnit);
-  }
-  categories.forEach((c,i) => {
-    const x = xScale(i);
-    svg += svgEl('text',{x,y:H-mB+14,'text-anchor':'end','font-size':10,fill:'#6b7569',transform:`rotate(-45 ${x} ${H-mB+14})`}, c);
-  });
-  // axis lines drawn before data so they don't intercept clicks
-  svg += svgEl('line',{x1:mL,x2:mL,y1:mT,y2:H-mB,stroke:'#9aa69a'});
-  svg += svgEl('line',{x1:mL,x2:W-mR,y1:H-mB,y2:H-mB,stroke:'#9aa69a'});
-  series.forEach(s => {
-    const pts = s.values.map((v,i) => v == null ? null : [xScale(i), yScale(v)]);
-    let runs = [], cur = [];
-    for (const p of pts){ if (p) cur.push(p); else { if (cur.length){ runs.push(cur); cur=[]; } } }
-    if (cur.length) runs.push(cur);
-    for (const run of runs){
-      const d = run.map((p,i)=>(i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
-      svg += svgEl('path',{d,fill:'none',stroke:s.color,'stroke-width':2.5});
-    }
-    pts.forEach((p,i) => {
-      if (!p) return;
-      const val = s.values[i];
-      const checksTxt = s.counts && s.counts[i] ? `<div><b>Checks:</b> ${s.counts[i]}</div>` : '';
-      const idx = chartPopupData.push(`<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(categories[i])}</div>
-        <div><b>Valley:</b> ${escapeHtml(s.label)}</div>
-        <div><b>${escapeHtml(s.popupKey||'Value')}:</b> ${val.toFixed(2)}${yUnit}</div>${checksTxt}`) - 1;
-      svg += `<g onclick="pinPopup(event,${idx})" style="cursor:pointer;">${svgEl('title',{},`${s.label} — ${categories[i]}: ${val.toFixed(2)}${yUnit} (click for details)`)}${svgEl('circle',{cx:p[0],cy:p[1],r:5,fill:s.color})}</g>`;
-    });
-  });
-  svg += `</svg>`;
-  return `<div class="chart-box">${svg}</div>`;
-}
-
-// Stacked bar chart: patrols per month, one segment per valley.
-function drawDeratPatrolFreqChart(months, monthLabels, mvData, valleys){
-  const monthTotals = months.map(m => valleys.reduce((s,v) => s + ((mvData[m]||{})[v]||{patrolCount:0}).patrolCount, 0));
-  const maxTotal = Math.max(...monthTotals, 1);
-  const step = niceStep(maxTotal);
-  const yMax = Math.ceil(maxTotal/step)*step;
-  const W = Math.max(520, months.length*52), H = 240, mL = 36, mR = 18, mT = 18, mB = 48;
-  const barW = Math.min(28, (W-mL-mR)/months.length*0.55);
-  const xCenter = i => mL + (i+0.5)*(W-mL-mR)/months.length;
-  const yScale = v => H-mB - v/yMax*(H-mT-mB);
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
-  for (let v=0; v<=yMax; v+=step){
-    const y = yScale(v);
-    svg += svgEl('line',{x1:mL,x2:W-mR,y1:y,y2:y,stroke:'#e3e8e2','stroke-width':1});
-    svg += svgEl('text',{x:mL-4,y:y+4,'text-anchor':'end','font-size':10,fill:'#6b7569'}, v);
-  }
-  svg += svgEl('line',{x1:mL,x2:mL,y1:mT,y2:H-mB,stroke:'#9aa69a'});
-  svg += svgEl('line',{x1:mL,x2:W-mR,y1:H-mB,y2:H-mB,stroke:'#9aa69a'});
-  months.forEach((m, i) => {
-    const x = xCenter(i);
-    let yBot = H-mB;
-    for (const v of valleys){
-      const cnt = ((mvData[m]||{})[v]||{patrolCount:0}).patrolCount;
-      if (!cnt) continue;
-      const barH = cnt/yMax*(H-mT-mB);
-      const yTop = yBot - barH;
-      const color = VALLEY_HEX[v]||categoricalColor(hashStringToInt(v));
-      const idx = chartPopupData.push(`<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(monthLabels[i])}</div>
-        <div><b>Valley:</b> ${escapeHtml(v)}</div>
-        <div><b>Patrols:</b> ${cnt}</div>`) - 1;
-      svg += `<g onclick="pinPopup(event,${idx})" style="cursor:pointer;">${svgEl('title',{},`${v} — ${monthLabels[i]}: ${cnt} patrols`)}${svgEl('rect',{x:x-barW/2,y:yTop,width:barW,height:barH,fill:color})}</g>`;
-      yBot = yTop;
-    }
-    const total = monthTotals[i];
-    if (total) svg += svgEl('text',{x,y:yScale(total)-3,'text-anchor':'middle','font-size':9,fill:'#3a3a3a'}, total);
-    svg += svgEl('text',{x,y:H-mB+14,'text-anchor':'end','font-size':10,fill:'#6b7569',transform:`rotate(-45 ${x} ${H-mB+14})`}, monthLabels[i]);
-  });
-  svg += `</svg>`;
-  return `<div class="chart-box">${svg}</div>`;
-}
-
-// Horizontal bar chart: one bar per rat line, sorted by avg Conso descending.
-function drawRatLineRankingChart(lineSorted){
-  if (!lineSorted.length) return '<span class="muted">No data.</span>';
-  const rowH = 22, mL = 122, mR = 56, mT = 8, mB = 20, barMaxW = 280;
-  const H = mT + lineSorted.length*rowH + mB, W = mL + barMaxW + mR;
-  const xScale = v => v/4*barMaxW;
-  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
-  for (let v=0; v<=4; v++){
-    const x = mL+xScale(v);
-    svg += svgEl('line',{x1:x,x2:x,y1:mT,y2:H-mB,stroke:'#e3e8e2','stroke-width':1});
-    svg += svgEl('text',{x,y:H-mB+12,'text-anchor':'middle','font-size':10,fill:'#6b7569'}, v);
-  }
-  svg += svgEl('line',{x1:mL,x2:mL,y1:mT,y2:H-mB,stroke:'#9aa69a'});
-  lineSorted.forEach((l, i) => {
-    const y = mT + i*rowH;
-    const bw = Math.max(1, xScale(l.avgConso));
-    const color = pctColor((4-l.avgConso)/4*100);
-    const idx = chartPopupData.push(`<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(l.zone)}</div>
-      <div><b>Valley:</b> ${escapeHtml(l.valley)}</div>
-      <div><b>Avg Conso:</b> ${l.avgConso.toFixed(2)}/4</div>
-      <div><b>Patrols:</b> ${l.patrolCount}</div>
-      <div><b>Station checks:</b> ${l.checkCount}</div>`) - 1;
-    svg += `<g onclick="pinPopup(event,${idx})" style="cursor:pointer;">${svgEl('title',{},`${l.zone}: avg Conso ${l.avgConso.toFixed(2)}/4 — ${l.patrolCount} patrols`)}${svgEl('rect',{x:mL,y:y+3,width:bw,height:rowH-6,fill:color})}${svgEl('text',{x:mL-4,y:y+rowH/2+4,'text-anchor':'end','font-size':10.5,fill:'#23291f'}, l.zone)}${svgEl('text',{x:mL+bw+4,y:y+rowH/2+4,'font-size':10,fill:'#4a4a4a'}, l.avgConso.toFixed(2))}</g>`;
-  });
-  svg += `</svg>`;
-  return svg;
-}
-
-function renderDeratTemporalAnalysis(){
-  chartPopupData = [];
-  hideChartPopup();
-  const area = document.getElementById('deratTemporalCharts');
-  const patrols = tables.deratisation || [];
-  const checks = tables.sectionChecks || [];
-  if (!patrols.length){ area.innerHTML = '<span class="muted">No dératisation data loaded yet.</span>'; return; }
-
-  const checksByIdent = new Map();
-  for (const c of checks){
-    if (!checksByIdent.has(c.Identifier)) checksByIdent.set(c.Identifier,[]);
-    checksByIdent.get(c.Identifier).push(c);
-  }
-
-  const valleys = getAllValleys();
-  const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const mLabel = m => { const [yr,mo] = m.split('-'); return MONTH_ABBR[+mo-1]+' '+yr.slice(2); };
-
-  // Accumulate per-month-valley check values and patrol counts
-  const monthsSet = new Set();
-  const mvData = {}; // mvData[month][valley] = { consoVals:[], patrolCount:0 }
-  const lineData = {}; // zone -> { valley, consoVals:[], patrolCount:0 }
-  let totalWithChecks = 0;
-
-  for (const d of patrols){
-    if (!d.Date || !d.Zone) continue;
-    const dc = (checksByIdent.get(d.Identifier)||[]).filter(c => c.Conso !== '' && c.Conso != null && isFinite(+c.Conso));
-    if (!dc.length) continue;
-    const month = d.Date.substring(0,7);
-    const valley = d.Zone.split('-')[0];
-    totalWithChecks++;
-    monthsSet.add(month);
-    if (!mvData[month]) mvData[month] = {};
-    if (!mvData[month][valley]) mvData[month][valley] = { consoVals:[], patrolCount:0 };
-    for (const c of dc) mvData[month][valley].consoVals.push(+c.Conso);
-    mvData[month][valley].patrolCount++;
-    if (!lineData[d.Zone]) lineData[d.Zone] = { valley, consoVals:[], patrolCount:0 };
-    for (const c of dc) lineData[d.Zone].consoVals.push(+c.Conso);
-    lineData[d.Zone].patrolCount++;
-  }
-
-  const months = [...monthsSet].sort();
-  const monthLabels = months.map(mLabel);
-  const dateRange = months.length ? `${mLabel(months[0])} – ${mLabel(months[months.length-1])}` : '—';
-
-  // Series: monthly avg Conso per valley
-  const avgConsoSeries = valleys.map(v => ({
-    label: v, color: VALLEY_HEX[v]||categoricalColor(hashStringToInt(v)),
-    popupKey: 'Avg Conso',
-    counts: months.map(m => (mvData[m]||{})[v]?.consoVals.length || 0),
-    values: months.map(m => {
-      const d = (mvData[m]||{})[v];
-      return d && d.consoVals.length ? d.consoVals.reduce((s,x)=>s+x,0)/d.consoVals.length : null;
-    })
-  }));
-
-  // Series: % zero-activity per valley
-  const zeroSeries = valleys.map(v => ({
-    label: v, color: VALLEY_HEX[v]||categoricalColor(hashStringToInt(v)),
-    popupKey: '% no activity (Conso=0)',
-    counts: months.map(m => (mvData[m]||{})[v]?.consoVals.length || 0),
-    values: months.map(m => {
-      const d = (mvData[m]||{})[v];
-      return d && d.consoVals.length ? 100*d.consoVals.filter(x=>x===0).length/d.consoVals.length : null;
-    })
-  }));
-
-  // Rat line ranking
-  const lineSorted = Object.entries(lineData)
-    .map(([zone,d]) => ({ zone, valley:d.valley, avgConso:d.consoVals.reduce((s,x)=>s+x,0)/d.consoVals.length, checkCount:d.consoVals.length, patrolCount:d.patrolCount }))
-    .sort((a,b) => b.avgConso - a.avgConso);
-
-  const allChecks = Object.values(lineData).flatMap(d => d.consoVals);
-  const overallAvg = allChecks.reduce((s,x)=>s+x,0)/allChecks.length;
-  const overallZero = Math.round(100*allChecks.filter(x=>x===0).length/allChecks.length);
-
-  const legendHtml = valleys
-    .filter(v => avgConsoSeries.find(s=>s.label===v)?.values.some(x=>x!=null))
-    .map(v=>`<span class="legend-item"><span class="swatch" style="background:${VALLEY_HEX[v]||categoricalColor(hashStringToInt(v))}"></span>${v}</span>`).join('');
-
-  area.innerHTML = `
-    <div class="grid3" style="margin-bottom:14px;">
-      <div class="stat"><div class="num">${totalWithChecks}</div><div class="lbl">patrols with at least one check</div></div>
-      <div class="stat"><div class="num">${overallAvg.toFixed(2)}</div><div class="lbl">overall average Conso (0–4, all time)</div></div>
-      <div class="stat"><div class="num">${overallZero}%</div><div class="lbl">checks with no activity (Conso = 0)</div></div>
-    </div>
-    <div class="row" style="align-items:flex-start;flex-wrap:wrap;gap:20px;margin-bottom:6px;">
-      <div>
-        <h4 style="font-size:13px;margin:0 0 4px;">Monthly average Conso (rat activity, 0–4)</h4>
-        <div class="muted" style="font-size:12px;margin-bottom:4px;">Higher = more bait consumed = more rats. Effective control should push lines down over time.</div>
-        ${drawLineTrendChart(avgConsoSeries, monthLabels, 4, '')}
-      </div>
-      <div>
-        <h4 style="font-size:13px;margin:0 0 4px;">% of checks with no activity (Conso = 0)</h4>
-        <div class="muted" style="font-size:12px;margin-bottom:4px;">Higher % = more stations with no rat sign. Should rise as control takes effect.</div>
-        ${drawLineTrendChart(zeroSeries, monthLabels, 100, '%')}
-      </div>
-    </div>
-    <div style="margin-bottom:16px;">${legendHtml}</div>
-    <h4 style="font-size:13px;margin:0 0 4px;">Patrols per month (by valley)</h4>
-    ${drawDeratPatrolFreqChart(months, monthLabels, mvData, valleys)}
-    <div style="margin:4px 0 16px;">${legendHtml}</div>
-    <h4 style="font-size:13px;margin:0 0 4px;">Rat line ranking — average Conso across all patrols (highest activity first)</h4>
-    <div class="muted" style="font-size:12px;margin-bottom:6px;">Red = high rat activity, green = low. Hover a bar for a quick summary — click to pin a full popup. Sorted from most to least active.</div>
-    <div class="chart-box">${drawRatLineRankingChart(lineSorted)}</div>
-  `;
-}
 
 // Empirical check for the recency-decay τ used in the Combined Cleaning Estimate (zoneTauDays() /
 // RECENCY_TAU_MICONIA_DAYS / RECENCY_TAU_SPATHODEA_DAYS above): when the same zone has two qualifying
@@ -10546,66 +10193,6 @@ function renderRepeatPairsAnalysis(){
   }
   html += '</tbody></table></div>';
   area.innerHTML = html;
-}
-
-function renderPastDataComparison(){
-  const valleys = ['Papehue','Maruapo','Hopa'];
-  const sbCategories = ['Aug 2023','Aug 2024','Dec 2025','Now (NRDS)'];
-  const sbSeries = valleys.map(v => ({
-    label: v, color: VALLEY_HEX[v],
-    values: [
-      weightedPctFromPastData(v,'SB2023',SB_WEIGHTS),
-      weightedPctFromPastData(v,'SB2024',SB_WEIGHTS),
-      weightedPctFromPastData(v,'SB2025',SB_WEIGHTS),
-      weightedPctNowFromNRDS(v)
-    ]
-  }));
-  const plantCategories = ['Ago 2023','Ago 2024','Dic 2025','Ora (NRDS)'];
-  const plantSeries = valleys.map(v => ({
-    label: v, color: VALLEY_HEX[v],
-    values: [
-      weightedPctFromPastData(v,'Plant2023',PLANT_WEIGHTS),
-      weightedPctFromPastData(v,'Plant2024',PLANT_WEIGHTS),
-      weightedPctFromPastData(v,'Plant2025',PLANT_WEIGHTS),
-      weightedPlantingCoverageNowFromNRDS(v)
-    ]
-  }));
-  const individualsStats = valleys.map(v => `${v}: <b>${totalIndividualsPlantedByValley(v)}</b>`).join(' &nbsp;·&nbsp; ');
-
-  const html = `<div class="row" style="align-items:flex-start;">
-    <div>
-      <h3 style="font-size:13.5px;margin:4px 0;">Understory management (% area, area-weighted average)</h3>
-      ${drawTrendChart(sbSeries, sbCategories)}
-    </div>
-    <div>
-      <h3 style="font-size:13.5px;margin:4px 0;">Plantings (% area, area-weighted average)</h3>
-      ${drawTrendChart(plantSeries, plantCategories)}
-    </div>
-  </div>
-  <div style="margin-top:6px;">${valleys.map(v=>`<span class="legend-item"><span class="swatch" style="background:${VALLEY_HEX[v]}"></span>${v}</span>`).join('')}</div>
-  <p class="muted" style="margin-top:6px;">"Now (NRDS)" for understory management = weighted average of the latest "end of day" % recorded per unit (only units with at least one logged action).<br>
-  "Now (NRDS)" for plantings has a different meaning from the 3 historical points: NRDS does not record a % of surface planted, only the number of individuals per action. This point therefore shows the % of surface (out of the management unit's total) that belongs to units with <i>at least one</i> planting action recorded in NRDS — a measure of "activity coverage", not "degree of completion" as in the historical surveys. The two are not perfectly comparable.</p>
-  <p class="muted" style="margin-top:4px;">Individuals planted recorded via NRDS by valley: ${individualsStats}</p>`;
-  document.getElementById('pastDataCharts').innerHTML = html;
-
-  const merged = buildPastDataMerged();
-  const cols = ['Nom','Valley','Site','Surface2D','Surface3D','SB2023','SB2024','SB2025','Plant2023','Plant2024','Plant2025','NRDS_Actions','NRDS_Individuals_Planted','NRDS_Latest_Cleaning_Pct','NRDS_Latest_Date'];
-  if (pastDataCombinedMode) cols.push('Combined_Cleaning_Estimate');
-  let tHtml = '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead><tbody>';
-  for (const r of merged) tHtml += '<tr>' + cols.map(c=>`<td>${r[c]}</td>`).join('') + '</tr>';
-  tHtml += '</tbody>';
-  document.getElementById('pastDataTable').innerHTML = tHtml;
-
-  const combinedBox = document.getElementById('pastDataCombinedBox');
-  if (pastDataCombinedMode){
-    const breakdown = merged.filter(r => r._combinedRes.estimate != null)
-      .map(r => ({ unit: r.Nom, valley: r.Valley, res: r._combinedRes }));
-    combinedBox.style.display = '';
-    combinedBox.innerHTML = renderCombinedCalcBox(breakdown);
-  } else {
-    combinedBox.style.display = 'none';
-    combinedBox.innerHTML = '';
-  }
 }
 
 /* ─────── Service Worker registration ─────── */
