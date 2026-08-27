@@ -9146,7 +9146,7 @@ function categorySelectHtml(id, currentRaw, options){
     const sel = currentRaw ? (o.value === currentRaw || (o.value !== '' && normalizeCategory(o.value) === norm)) : (o.value === '');
     return `<option value="${escapeHtml(o.value)}" ${sel?'selected':''}>${escapeHtml(o.label)}</option>`;
   }).join('');
-  return `<select id="${id}" style="width:100%;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)">${optsHtml}</select>`;
+  return `<select id="${id}" style="width:100%;min-width:115px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)">${optsHtml}</select>`;
 }
 function setEditHistValley(v){
   if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
