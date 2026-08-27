@@ -9424,11 +9424,14 @@ function computeZoneScores(d, pastLookup, unitGeomMap){
     // highest — a zone reported as basically done years ago that nobody has been back to since is
     // the one most likely to have silently regrown untended.
     var maintainEligible = histCutPct > MAINTAIN_HIST_THRESHOLD;
-    // Optional secondary factor (checkbox, off by default): discount TO MAINTAIN priority by NRDS
-    // planting effort recorded in the zone — same halflife-decay shape as TO PLANT's own
-    // activityDiscount, reusing PLANT_ACTIVITY_HALFLIFE for consistency. "NRDS only" per Marco's
-    // request: nrdsCount is individuals planted from live NRDS data, not the historical survey.
-    var maintainPlantDiscount = includePlantingInMaintain ? Math.pow(0.5, nrdsCount / PLANT_ACTIVITY_HALFLIFE) : 1;
+    // Optional secondary factor (checkbox, off by default): boost TO MAINTAIN priority by NRDS
+    // planting effort recorded in the zone (Marco, 2026-08-27: more individuals planted = higher
+    // priority, not less — a zone that's had real planting investment is worth protecting from
+    // relapse more than one that hasn't) — inverse of the same halflife-saturation shape TO PLANT's
+    // activityDiscount uses, reusing PLANT_ACTIVITY_HALFLIFE for consistency: 0 at no plantings,
+    // approaches 1 as NRDS-recorded individuals planted grows. "NRDS only" per Marco's request:
+    // nrdsCount is individuals planted from live NRDS data, not the historical survey.
+    var maintainPlantDiscount = includePlantingInMaintain ? (1 - Math.pow(0.5, nrdsCount / PLANT_ACTIVITY_HALFLIFE)) : 1;
     var toMaintainScore = maintainEligible ? (1/(1+actionCount)) * maintainPlantDiscount : 0;
 
     return { projPct:projPct, histPct:histPct, nrdsPctAdd:nrdsPctAdd,
@@ -9468,17 +9471,17 @@ function priorityZonesRanked(n, includeStale){
     if (a.score.cutDominanceTier !== b.score.cutDominanceTier) return a.score.cutDominanceTier - b.score.cutDominanceTier;
     return b.score.toCutScore - a.score.toCutScore;
   }).slice(0, n);
-  // Bug found & fixed 2026-08-26: with the planting checkbox on, toMaintainScore alone
-  // (actionCount-based base × planting discount) could still rank a zone with MANY planted
-  // individuals above one with NONE, whenever the planted zone happened to have fewer total
-  // actions overall (e.g. one big Plantation session vs. several separate cutting visits) — the
-  // discount wasn't decisive enough to overcome that. Fewer individuals planted must rank higher,
-  // absolutely, same "priorità assoluta" pattern as TO CUT's dominance tiering: sort by nrdsCount
-  // ascending first when the checkbox is on, toMaintainScore (still actionCount-based) only as a
-  // tiebreaker — not the other way around.
+  // Bug found & fixed 2026-08-26, direction reversed 2026-08-27 (Marco: more individuals planted
+  // must rank higher, not fewer): with the planting checkbox on, toMaintainScore alone
+  // (actionCount-based base × planting factor) can't reliably decide ordering by nrdsCount alone —
+  // e.g. one big Plantation session vs. several separate cutting visits could still let a
+  // low-actionCount/high-nrdsCount zone and a high-actionCount/low-nrdsCount zone tie or invert.
+  // More individuals planted must rank higher, absolutely, same "priorità assoluta" pattern as TO
+  // CUT's dominance tiering: sort by nrdsCount descending first when the checkbox is on,
+  // toMaintainScore (still actionCount-based) only as a tiebreaker — not the other way around.
   var maintain = scored.filter(function(d){ return d.score.maintainEligible; })
     .sort(function(a,b){
-      if (includePlantingInMaintain && a.score.nrdsCount !== b.score.nrdsCount) return a.score.nrdsCount - b.score.nrdsCount;
+      if (includePlantingInMaintain && a.score.nrdsCount !== b.score.nrdsCount) return b.score.nrdsCount - a.score.nrdsCount;
       return b.score.toMaintainScore - a.score.toMaintainScore;
     }).slice(0, n);
   return { plant: plant, cut: cut, maintain: maintain };
@@ -9558,7 +9561,7 @@ function renderPriorityZonesDropdown(ranked){
     return priorityBarRow(d, i, 'toMaintainScore', maxMaintain, '#8e5bc0', stat);
   }).join('') || '<div class="muted" style="font-size:12px;padding:4px 6px;">No zone &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut.</div>';
   var maintainPlantToggle = '<label class="muted" style="display:flex;align-items:center;gap:5px;font-size:11px;margin-bottom:5px;">' +
-    '<input type="checkbox" id="maintainPlantToggle" '+(includePlantingInMaintain?'checked':'')+' onchange="toggleMaintainPlanting(this.checked)"> also factor in NRDS plantings (fewer planted = higher priority)</label>';
+    '<input type="checkbox" id="maintainPlantToggle" '+(includePlantingInMaintain?'checked':'')+' onchange="toggleMaintainPlanting(this.checked)"> also factor in NRDS plantings (more planted = higher priority)</label>';
   var columns = '<div class="priority-columns">' +
     '<div class="priority-column">' +
       '<div style="font-size:12.5px;font-weight:700;color:#2ca02c;margin-bottom:5px;">🌱 TO PLANT — needs planting most</div>' +
@@ -9951,7 +9954,7 @@ function renderPriorityCalcBox(ranked){
   var html = '<b>Priority zones — three independent rankings</b><br><br>' +
     '<b>🌱 TO PLANT score</b> = (1 − proj_planting%) × typology_weight × activity_discount × clean_weight — high when a zone is still unplanted <i>and</i> invasive-dominated <i>and</i> hasn\'t seen much recent NRDS planting effort <i>and</i> is already cleared enough to plant into. clean_weight = the same "Combined current estimate" cleaning % shown elsewhere in the app, ÷100 — a 0%-clean zone scores zero here regardless of everything else, since there\'s nothing plantable yet.<br>' +
     '<b>🪓 TO CUT score</b> = (1 − historical_sous_bois%) × activity_discount — high when a zone\'s historical undergrowth-clearing record is still low <i>and</i> little workforce effort has gone into cutting it so far. Ranked by <b>dominant-vegetation tier first, score second</b> — invasive-dominant zones always rank above native-dominant ones, absolutely, regardless of score (same dominance lookup as TO PLANT\'s typology).<br>' +
-    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally rank by NRDS planting effort — <b>absolutely</b> (fewer individuals planted always ranks above more, regardless of action count — same tiered-sort pattern as TO CUT\'s dominance ordering, not a soft multiplier: a multiplier alone couldn\'t guarantee it, since a zone with one big planting session but few total actions could otherwise still outscore a heavily-visited zone with none). Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
+    '<b>🔁 TO MAINTAIN list</b> = zones whose historical sous-bois record already shows &gt;'+MAINTAIN_HIST_THRESHOLD+'% progress, ranked by fewest NRDS actions recorded (any type) — the most-neglected among the already-mostly-cut zones, at risk of relapsing untended. A per-list checkbox can additionally rank by NRDS planting effort — <b>absolutely</b> (more individuals planted always ranks above fewer, regardless of action count — a zone with real planting investment is worth protecting from relapse more than one without; same tiered-sort pattern as TO CUT\'s dominance ordering, not a soft multiplier: a multiplier alone couldn\'t guarantee it, since actionCount alone could otherwise still outrank it). Off by default; unlike TO PLANT/TO CUT this list is otherwise not a continuous blended score — a filtered, sorted list.<br><br>' +
     '<b>Typology weights</b> (TO PLANT only): C=1.0 · B=0.8 · A*=0.4 · A=0.2 · X=0 — an unplanted zone that\'s already native-dominant (natural regen under way) ranks low; unplanted + invasive-dominant ranks highest.<br>' +
     '<b>Activity discount</b> (TO PLANT): <code>0.5 ^ (individuals_planted / '+PLANT_ACTIVITY_HALFLIFE+')</code> — halves every '+PLANT_ACTIVITY_HALFLIFE+' individuals NRDS has planted in that zone since the historical baseline. Corrects for proj_planting% understating effort in large zones, where a real planting session barely moves the area-normalized %.<br>' +
     '<b>Activity discount</b> (TO CUT): <code>0.5 ^ (person_days_cutting / '+CUT_ACTIVITY_HALFLIFE+')</code> — halves every '+CUT_ACTIVITY_HALFLIFE+' person-days (headcount × session) of recorded Coupe du sous-bois work in that zone. NRDS has no hours-worked field, so person-days — already used the same way in the "People involved" chart — is the closest available proxy for effort.<br>' +
@@ -9985,7 +9988,7 @@ function renderPriorityCalcBox(ranked){
   } else {
     html += '<b>🔁 TO MAINTAIN ranking</b>'+(includePlantingInMaintain ? ' <span class="muted">(plantings factored in)</span>' : '')+
       '<div class="table-scroll" style="margin-top:4px;margin-bottom:10px;"><table class="preview"><thead><tr>' +
-      '<th>#</th><th>Unit</th><th>Hist cut%</th><th>Actions recorded</th><th>Ind. planted</th><th>Discount</th></tr></thead><tbody>';
+      '<th>#</th><th>Unit</th><th>Hist cut%</th><th>Actions recorded</th><th>Ind. planted</th><th>Boost</th></tr></thead><tbody>';
     maintain.forEach(function(d,i){
       html += '<tr><td>'+(i+1)+'</td><td>'+escapeHtml(d.unit)+'</td>' +
         '<td>'+Math.round(d.score.histCutPct)+'%</td><td>'+d.score.actionCount+'</td>' +
