@@ -1046,6 +1046,46 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </span>
   </button>
 
+  <button type="button" class="nav-tile" onclick="showPriorityView()">
+    <span class="nav-tile-icon">📍</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">5. Priority zones to work on</span>
+      <span class="nav-tile-sub">Planting, cutting &amp; maintenance — three independent rankings</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showLastPlantingView()">
+    <span class="nav-tile-icon">🌱</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">6. Last planting actions</span>
+      <span class="nav-tile-sub" id="lastPlantingTileSub">Every plantation logged, by valley &amp; zone</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showLastCleaningView()">
+    <span class="nav-tile-icon">🧹</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">7. Last cleaning actions</span>
+      <span class="nav-tile-sub" id="lastCleaningTileSub">Every cutting/maintenance session, by valley &amp; zone</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showLastRatLineView()">
+    <span class="nav-tile-icon">🧹✨</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">8. Last rat line cleaning</span>
+      <span class="nav-tile-sub">Per-line "Cleaned" flag, separate from zone cleaning</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showCuttingVsMaintenanceView()">
+    <span class="nav-tile-icon">🌿</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">9. Cutting vs plantation maintenance</span>
+      <span class="nav-tile-sub">Compared side by side, sessions per month</span>
+    </span>
+  </button>
+
   <div class="card" id="previewCard" style="display:none;">
     <h2>Enriched dataset preview (Habitat Restoration)</h2>
     <div class="table-scroll"><table class="preview" id="previewTable"></table></div>
@@ -1999,6 +2039,51 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <div id="repeatPairsContent" style="margin-top:12px;"></div>
   </div>
 
+</div>
+
+<div class="wrap" id="priorityView" style="display:none;">
+  <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
+  <div class="card">
+    <h2>5. Priority zones to work on</h2>
+    <div class="hint">Three independent rankings for deciding which zones to work on next — planting, cutting, and maintenance — never blended into one number.</div>
+    <div id="priorityViewContent"></div>
+  </div>
+</div>
+
+<div class="wrap" id="lastPlantingView" style="display:none;">
+  <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
+  <div class="card">
+    <h2>6. Last planting actions</h2>
+    <div class="hint">Every PLANTATION action recorded, filterable by valley and zone, with a per-zone summary.</div>
+    <div id="lastPlantingViewContent"></div>
+  </div>
+</div>
+
+<div class="wrap" id="lastCleaningView" style="display:none;">
+  <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
+  <div class="card">
+    <h2>7. Last cleaning actions</h2>
+    <div class="hint">Every CUTTING/MAINTENANCE action recorded, filterable by valley and zone, with a per-zone summary.</div>
+    <div id="lastCleaningViewContent"></div>
+  </div>
+</div>
+
+<div class="wrap" id="lastRatLineView" style="display:none;">
+  <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
+  <div class="card">
+    <h2>8. Last rat line cleaning</h2>
+    <div class="hint">Rat-line cleaning is logged separately from zone-level cleaning actions (a per-line YES/NO "Cleaned" flag).</div>
+    <div id="lastRatLineViewContent"></div>
+  </div>
+</div>
+
+<div class="wrap" id="cuttingVsMaintenanceView" style="display:none;">
+  <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
+  <div class="card">
+    <h2>9. Cutting vs plantation maintenance — compared</h2>
+    <div class="hint">CUTTING and MAINTENANCE both log a "% cleaned" per session but target different work — kept separate here rather than blended into one number.</div>
+    <div id="cuttingVsMaintenanceViewContent"></div>
+  </div>
 </div>
 
 <script>
@@ -5571,12 +5656,53 @@ function showPastDataView(){
   if (location.hash !== '#trends') location.hash = 'trends';
   window.scrollTo(0,0);
 }
+// Priority zones / last planting / last cleaning / last rat line / cutting-vs-maintenance were
+// previously <details> dropdowns embedded in the home "Live data" card — moved 2026-08-26 to full
+// separate views (same "big button + back to dashboard" pattern as Map/Chart analysis/Temporal
+// trends above) so the home page stays a short dashboard instead of a long scroll. Their content
+// (#priorityViewContent etc.) is filled by onDataUpdated() same as before, just into a different
+// container.
+function showPriorityView(){
+  document.getElementById('homeView').style.display = 'none';
+  document.getElementById('priorityView').style.display = '';
+  if (location.hash !== '#priority') location.hash = 'priority';
+  window.scrollTo(0,0);
+}
+function showLastPlantingView(){
+  document.getElementById('homeView').style.display = 'none';
+  document.getElementById('lastPlantingView').style.display = '';
+  if (location.hash !== '#last-planting') location.hash = 'last-planting';
+  window.scrollTo(0,0);
+}
+function showLastCleaningView(){
+  document.getElementById('homeView').style.display = 'none';
+  document.getElementById('lastCleaningView').style.display = '';
+  if (location.hash !== '#last-cleaning') location.hash = 'last-cleaning';
+  window.scrollTo(0,0);
+}
+function showLastRatLineView(){
+  document.getElementById('homeView').style.display = 'none';
+  document.getElementById('lastRatLineView').style.display = '';
+  if (location.hash !== '#rat-line-cleaning') location.hash = 'rat-line-cleaning';
+  window.scrollTo(0,0);
+}
+function showCuttingVsMaintenanceView(){
+  document.getElementById('homeView').style.display = 'none';
+  document.getElementById('cuttingVsMaintenanceView').style.display = '';
+  if (location.hash !== '#cutting-vs-maintenance') location.hash = 'cutting-vs-maintenance';
+  window.scrollTo(0,0);
+}
 function showHomeView(){
   document.getElementById('submitView').style.display = 'none';
   SUBMIT_FORM_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('mapView').style.display = 'none';
   document.getElementById('analysisView').style.display = 'none';
   document.getElementById('pastDataView').style.display = 'none';
+  document.getElementById('priorityView').style.display = 'none';
+  document.getElementById('lastPlantingView').style.display = 'none';
+  document.getElementById('lastCleaningView').style.display = 'none';
+  document.getElementById('lastRatLineView').style.display = 'none';
+  document.getElementById('cuttingVsMaintenanceView').style.display = 'none';
   document.getElementById('homeView').style.display = '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   window.scrollTo(0,0);
@@ -5604,6 +5730,8 @@ const HASH_VIEW_FNS = {
   '#submit': showSubmitView, '#map': showMapView, '#analysis': showAnalysisView, '#trends': showPastDataView,
   '#form-hr': showHrView, '#form-dr': showDrView, '#form-pff': showPffFormView, '#form-ibs': showIbsView,
   '#form-bo': showBoView, '#form-at': showAtView, '#form-ae': showAeEntryView,
+  '#priority': showPriorityView, '#last-planting': showLastPlantingView, '#last-cleaning': showLastCleaningView,
+  '#rat-line-cleaning': showLastRatLineView, '#cutting-vs-maintenance': showCuttingVsMaintenanceView,
 };
 // Deferred via setTimeout, not called synchronously here: some view functions (e.g. showMapView,
 // which reads `leafletMap`) reference `let`-declared variables that appear further down this same
@@ -6101,24 +6229,32 @@ function onDataUpdated(){
     <div class="stat"><div class="num">${cleaningSummary.overall != null ? cleaningSummary.overall.toFixed(0)+'%' : '—'}</div><div class="lbl">area-weighted cleaning %</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${cleaningByValleyText}</div></div>
     <div class="stat"><div class="num">${plantingMonthly.total}</div><div class="lbl">planted this month · target ${PLANTING_MONTHLY_TARGET_PER_VALLEY}/valley/month</div><div class="muted" style="font-size:10.5px;margin-top:3px;">${plantingMonthlyByValleyText}</div></div>
   </div>`;
+  document.getElementById('buildSummary').innerHTML = html;
+
+  // 2026-08-26: these 5 used to be <details> dropdowns appended into the same buildSummary HTML
+  // above — now full separate views (see showPriorityView() etc.), so each renders into its own
+  // view's content container instead. Still computed unconditionally on every onDataUpdated(),
+  // same as before, so the page is current whenever the user navigates to it (matches how
+  // renderMap()/renderPreview() already work regardless of which view is visible).
   let priorityRanked = { plant: [], cut: [], maintain: [] };
-  let priorityHtml = '';
+  let priorityContentHtml = '';
   try {
     priorityRanked = priorityZonesRanked(priorityShowAll ? Infinity : 20, includeStaleInPriority);
-    priorityHtml = `<div style="margin-top:10px;">
-      ${renderPriorityZonesDropdown(priorityRanked)}
-      <div class="priority-calc-box" id="priorityCalcBox" style="display:${priorityDetailsOpen?'':'none'};">${renderPriorityCalcBox(priorityRanked)}</div>
-    </div>`;
+    priorityContentHtml = `${renderPriorityZonesDropdown(priorityRanked)}
+      <div class="priority-calc-box" id="priorityCalcBox" style="display:${priorityDetailsOpen?'':'none'};">${renderPriorityCalcBox(priorityRanked)}</div>`;
   } catch(e) {
     console.error('[priorityZonesRanked] crash:', e);
-    priorityHtml = `<div class="warn" style="margin-top:10px;">⚠ Priority zones error: ${escapeHtml(String(e))} — <button class="secondary" onclick="onDataUpdated()">Retry</button></div>`;
+    priorityContentHtml = `<div class="warn">⚠ Priority zones error: ${escapeHtml(String(e))} — <button class="secondary" onclick="onDataUpdated()">Retry</button></div>`;
   }
-  html += priorityHtml;
-  html += renderLastPlantingDropdown(mainRows);
-  html += renderLastCleaningDropdown(mainRows);
-  html += renderLastRatLineCleaningDropdown(mainRows);
-  html += renderCleaningVsMaintenanceDropdown();
-  document.getElementById('buildSummary').innerHTML = html;
+  document.getElementById('priorityViewContent').innerHTML = priorityContentHtml;
+  const lastPlantingHtml = renderLastPlantingDropdown(mainRows);
+  document.getElementById('lastPlantingViewContent').innerHTML = lastPlantingHtml.content;
+  document.getElementById('lastPlantingTileSub').textContent = lastPlantingHtml.countLabel;
+  const lastCleaningHtml = renderLastCleaningDropdown(mainRows);
+  document.getElementById('lastCleaningViewContent').innerHTML = lastCleaningHtml.content;
+  document.getElementById('lastCleaningTileSub').textContent = lastCleaningHtml.countLabel;
+  document.getElementById('lastRatLineViewContent').innerHTML = renderLastRatLineCleaningDropdown(mainRows);
+  document.getElementById('cuttingVsMaintenanceViewContent').innerHTML = renderCleaningVsMaintenanceDropdown();
   document.getElementById('enrichedDownloadButtons').innerHTML = `
     <button class="secondary" onclick="downloadCSV('habitat_restoration_enriched.csv', enriched.mainRows, Object.keys(enriched.mainRows[0]))">⬇ habitat_restoration_enriched.csv</button>
     <button class="secondary" onclick="downloadCSV('habitat_restoration_stations_long.csv', enriched.stationRows, ['Identifier','Valley','Station','Latitude','Longitude'])">⬇ stations_long.csv</button>
@@ -9107,13 +9243,11 @@ function renderPriorityZonesDropdown(ranked){
   var controls = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px;align-items:center;">' +
     '<label class="muted" style="display:flex;align-items:center;gap:6px;">Valley: <select onchange="setPriorityValley(this.value)" style="padding:2px 6px;font-size:12px;">'+valleyOpts+'</select></label>' +
     staleToggle + showAllToggle + '</div>';
-  var openAttr = priorityDetailsOpen ? 'open' : '';
-  var toggleAttr = 'ontoggle="priorityDetailsOpen=this.open;document.getElementById(\'priorityCalcBox\').style.display=this.open?\'\':\''+'none\'"';
+  var calcToggleBtn = '<button class="secondary" onclick="togglePriorityCalcBox()" style="font-size:12px;padding:4px 10px;margin-bottom:10px;">' +
+    (priorityDetailsOpen ? 'Hide' : 'Show') + ' calculation details</button>';
   var plant = ranked.plant || [], cut = ranked.cut || [], maintain = ranked.maintain || [];
   if (!plant.length && !cut.length && !maintain.length){
-    return '<details style="margin-top:10px;" '+openAttr+' '+toggleAttr+'>' +
-      '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting, cutting &amp; maintenance</summary>' +
-      '<div style="margin-top:8px;">'+controls+'<div class="muted">No zone with data for selected valley.</div></div></details>';
+    return controls + calcToggleBtn + '<div class="muted">No zone with data for selected valley.</div>';
   }
   var maxPlant = plant.length ? plant[0].score.toPlantScore : 0;
   var maxCut = cut.length ? cut[0].score.toCutScore : 0;
@@ -9147,23 +9281,18 @@ function renderPriorityZonesDropdown(ranked){
       maintainRows +
     '</div>' +
   '</div>';
-  return '<details style="margin-top:10px;" '+openAttr+' '+toggleAttr+'>' +
-    '<summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">📍 Priority zones to work on — planting, cutting &amp; maintenance (click to expand)</summary>' +
-    '<div style="margin-top:8px;">'+controls +
+  return controls + calcToggleBtn +
     '<div class="muted" style="margin-bottom:8px;">'+(priorityShowAll ? 'All qualifying zones shown' : 'Top '+Math.max(plant.length,cut.length,maintain.length)+' each')+' (TO MAINTAIN filtered to zones &gt;'+MAINTAIN_HIST_THRESHOLD+'% historically cut) · three independent rankings, never blended</div>' +
-    columns + '</div></details>';
+    columns;
 }
+function togglePriorityCalcBox(){ priorityDetailsOpen = !priorityDetailsOpen; onDataUpdated(); }
 
 let lastPlantingValleyFilter = 'all';
 let lastPlantingZoneFilter = new Set(); // empty = all zones within the selected valley
-let lastPlantingDetailsOpen = false;
 let lastPlantingDetailSort = { col: 'date', dir: 'desc' };
 let lastPlantingSummarySort = { col: 'totalIndividuals', dir: 'desc' };
 let lastCleaningValleyFilter = 'all';
 let lastCleaningZoneFilter = new Set(); // empty = all zones within the selected valley
-// Without this, every filter change re-renders the whole home page and the <details> element is
-// recreated fresh (closed by default) — same open/close persistence pattern as priorityDetailsOpen.
-let lastCleaningDetailsOpen = false;
 let lastRatLineCleaningValleyFilter = 'all';
 function setLastPlantingValley(v){ lastPlantingValleyFilter = v; lastPlantingZoneFilter = new Set(); onDataUpdated(); }
 function setLastPlantingZones(selectEl){
@@ -9305,10 +9434,7 @@ function renderLastPlantingDropdown(mainRows){
     ).join('')}</tbody></table></div>`
     : `<div class="muted" style="padding:8px 10px;">No plantation actions recorded yet.</div>`;
 
-  return `<details style="margin-top:8px;" ${lastPlantingDetailsOpen?'open':''} ontoggle="lastPlantingDetailsOpen=this.open">
-    <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🌱 Last planting actions (${countLabel})</summary>
-    <div style="margin-top:8px;">${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}</div>
-  </details>`;
+  return { content: `${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}`, countLabel };
 }
 
 // Rewritten 2026-08-26 as an interactive table (was a fixed "15 most recent" card list): the old
@@ -9389,10 +9515,7 @@ function renderLastCleaningDropdown(mainRows){
     (anyMissingHours ? `<div class="muted" style="font-size:11px;margin-top:4px;">* hours not recorded for this session (before NRDS added "Number of hours" on 2026-08-25) — estimated at ${HOURS_PER_DAY_FALLBACK}h/person.</div>` : '')
     : `<div class="muted" style="padding:8px 10px;">No cleaning actions recorded yet.</div>`;
 
-  return `<details style="margin-top:8px;" ${lastCleaningDetailsOpen?'open':''} ontoggle="lastCleaningDetailsOpen=this.open">
-    <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🧹 Last cleaning actions (${countLabel})</summary>
-    <div style="margin-top:8px;">${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}</div>
-  </details>`;
+  return { content: `${valleySelect}${zoneSelect}${summaryHtml}${detailHtml}`, countLabel };
 }
 
 // Rat line cleaning is recorded on NRDS as a per-line YES/NO ("Cleaned"), separate from the
@@ -9419,10 +9542,7 @@ function renderLastRatLineCleaningDropdown(mainRows){
         </div>`;
       }).join('')
     : `<div class="muted" style="padding:8px 10px;">No rat line cleaning recorded yet.</div>`;
-  return `<details style="margin-top:8px;">
-    <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🧹✨ Last rat line cleaning (${countLabel})</summary>
-    <div style="margin-top:8px;">${valleySelect}${inner}</div>
-  </details>`;
+  return `<div class="muted" style="margin-bottom:8px;">${countLabel}</div>${valleySelect}${inner}`;
 }
 
 // Both action types log a "% cleaned" per session but target different work — undergrowth cutting
@@ -9512,18 +9632,13 @@ function renderCleaningVsMaintenanceDropdown(){
     return `<div style="flex:1;min-width:240px;"><b style="color:${s.color};font-size:12.5px;">${escapeHtml(s.short)}</b><div style="margin-top:4px;">${inner}</div></div>`;
   }).join('');
 
-  return `<details style="margin-top:8px;">
-    <summary style="cursor:pointer;font-size:13px;color:var(--green-dark);">🌿 Cutting vs plantation maintenance — compared</summary>
-    <div style="margin-top:8px;">
-      <div class="muted" style="margin-bottom:8px;">Both log a "% cleaned" per session but target different work — kept separate here (and in the zone cutting estimate) instead of blended into one number.</div>
-      ${compareTable}
-      <h3 style="font-size:13px;margin:12px 0 4px;">Sessions per month</h3>
-      ${freqChart}
-      <div style="margin-top:6px;">${legend}</div>
-      <h3 style="font-size:13px;margin:14px 0 4px;">Most recent sessions</h3>
-      <div style="display:flex;flex-wrap:wrap;gap:16px;">${recentTables}</div>
-    </div>
-  </details>`;
+  return `<div class="muted" style="margin-bottom:8px;">Both log a "% cleaned" per session but target different work — kept separate here (and in the zone cutting estimate) instead of blended into one number.</div>
+    ${compareTable}
+    <h3 style="font-size:13px;margin:12px 0 4px;">Sessions per month</h3>
+    ${freqChart}
+    <div style="margin-top:6px;">${legend}</div>
+    <h3 style="font-size:13px;margin:14px 0 4px;">Most recent sessions</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;">${recentTables}</div>`;
 }
 
 function renderPriorityCalcBox(ranked){
