@@ -24,6 +24,7 @@ create table if not exists management_unit_overrides (
   plant2023 text,
   plant2024 text,
   plant2025 text,
+  dominance_override text,
   updated_at timestamptz not null default now(),
   unique (valley, nom)
 );
@@ -47,3 +48,8 @@ create policy "Allow public update (management_unit_overrides)"
 -- sure this table is added to the "supabase_realtime" publication (Database -> Replication in the
 -- dashboard, or the statement below).
 alter publication supabase_realtime add table management_unit_overrides;
+
+-- 2026-08-27 migration: if you already created this table before today, the "create table if not
+-- exists" above was a no-op for you and dominance_override wasn't added — run this one line by
+-- itself (safe to run even if the table was just freshly created above, "if not exists" no-ops).
+alter table management_unit_overrides add column if not exists dominance_override text;

@@ -1804,7 +1804,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   <div class="card">
     <h2>Edit Management Unit — historical data (Butaud survey)</h2>
-    <div class="hint">Every field here comes from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way). Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here.</div>
+    <div class="hint">Every field here comes from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way). "Dominance" normally auto-detects native vs. invasive vs. anthropic from the Veg 2023/2024/2025 text (a heuristic word-parse) — set it explicitly here to correct a wrong call without having to reword the vegetation text. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here.</div>
     <div class="row" style="margin-top:10px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap;">
       <span id="editHistValleySelectWrap"></span>
       <button class="secondary" id="editHistResetBtn" onclick="resetEditHistChanges()" disabled>Reset changes</button>
@@ -2150,7 +2150,7 @@ let pastData = null;
 let pastDataBase = null;
 let pastDataOverrides = new Map(); // 'Valley||Nom' -> partial override fields (same keys as pastData rows)
 const EMPTY_HIST_FIELDS = { Site:null, Surface2D:null, Surface3D:null, Veg2023:null, Veg2024:null, Veg2025:null,
-  SB2023:null, SB2024:null, SB2025:null, Plant2023:null, Plant2024:null, Plant2025:null };
+  SB2023:null, SB2024:null, SB2025:null, Plant2023:null, Plant2024:null, Plant2025:null, DominanceOverride:null };
 function applyPastDataOverrides(){
   const base = pastDataBase || [];
   const merged = base.map(u => {
@@ -5606,6 +5606,7 @@ function managementUnitOverrideRowToFields(r){
     Veg2023: r.veg2023, Veg2024: r.veg2024, Veg2025: r.veg2025,
     SB2023: r.sb2023, SB2024: r.sb2024, SB2025: r.sb2025,
     Plant2023: r.plant2023, Plant2024: r.plant2024, Plant2025: r.plant2025,
+    DominanceOverride: r.dominance_override,
   };
 }
 
@@ -6258,7 +6259,7 @@ function downloadRatStations(){
 function downloadManagementUnitHistory(){
   const rows = pastData || [];
   if (!rows.length){ alert('Historical dataset not loaded yet.'); return; }
-  const fields = ['Valley','Nom','Site','Surface2D','Surface3D','Veg2023','Veg2024','Veg2025',
+  const fields = ['Valley','Nom','Site','Surface2D','Surface3D','Veg2023','Veg2024','Veg2025','DominanceOverride',
     'SB2023','SB2024','SB2025','Plant2023','Plant2024','Plant2025'];
   downloadCSV('management_unit_history.csv', rows, fields);
 }
@@ -8995,8 +8996,20 @@ function vegNativeDominance(vegStr){
   if (fi !== Infinity) return 'invasive';
   return null;
 }
+// DominanceOverride (editable in "Edit Management Unit") lets the team correct a wrong native/
+// invasive/anthropic call without having to reword the raw vegetation text just to make
+// vegNativeDominance()'s genus-name parsing land on the right answer — it's a heuristic parse of
+// free text and can misfire (wrong word order, an unlisted genus, a typo). Still shows the actual
+// vegetation text for context; only the dominance verdict itself is overridden.
 function latestVegDominance(hu){
   if (!hu) return null;
+  if (hu.DominanceOverride){
+    for (const yr of ['2025','2024','2023']){
+      const veg = hu['Veg'+yr];
+      if (veg) return { dominance: hu.DominanceOverride, period: yr, raw: veg, overridden: true };
+    }
+    return { dominance: hu.DominanceOverride, period: 'override', raw: '(manually set — no vegetation text on record)', overridden: true };
+  }
   for (const yr of ['2025','2024','2023']){
     const veg = hu['Veg'+yr];
     if (veg){ return { dominance: vegNativeDominance(veg), period: yr, raw: veg }; }
@@ -9154,6 +9167,15 @@ const PLANT_CATEGORY_OPTIONS = [
   { value:'un tiers', label:'Un tiers' }, { value:'moitie', label:'Moitié' }, { value:'effectuee', label:'Effectuée' },
   { value:'sans objet', label:'Sans objet' },
 ];
+// Overrides vegNativeDominance()'s auto-parse of the free-text Veg2023/2024/2025 fields (used
+// everywhere: TO CUT/TO MAINTAIN dominance tiering, TO PLANT typology, the map's dominance-colored
+// layers, τ genus selection) — for a zone where that heuristic word-parse got it wrong.
+const DOMINANCE_OVERRIDE_OPTIONS = [
+  { value:'', label:'— auto (from vegetation text) —' },
+  { value:'native', label:'Native' },
+  { value:'invasive', label:'Invasive' },
+  { value:'anthropic', label:'Anthropic' },
+];
 let editHistValleyFilter = 'all';
 let editHistDirtyRows = new Set(); // indices into editHistRowsMeta for the currently-rendered table
 let editHistRowsMeta = []; // [{nom, valley}, ...] in the same order as the rendered <tr>s
@@ -9210,6 +9232,7 @@ function readEditHistRow(rowIndex){
     veg2023: txt('veg2023'), veg2024: txt('veg2024'), veg2025: txt('veg2025'),
     sb2023: txt('sb2023'), sb2024: txt('sb2024'), sb2025: txt('sb2025'),
     plant2023: txt('plant2023'), plant2024: txt('plant2024'), plant2025: txt('plant2025'),
+    dominance_override: txt('dominance'),
     updated_at: new Date().toISOString(),
   };
 }
@@ -9281,6 +9304,7 @@ function renderEditManagementUnitView(){
       <td><input type="text" id="ehField_${i}_veg2023" value="${escapeHtml(u.Veg2023||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
       <td><input type="text" id="ehField_${i}_veg2024" value="${escapeHtml(u.Veg2024||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
       <td><input type="text" id="ehField_${i}_veg2025" value="${escapeHtml(u.Veg2025||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td>${categorySelectHtml(`ehField_${i}_dominance`, u.DominanceOverride, DOMINANCE_OVERRIDE_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_sb2023`, u.SB2023, SB_CATEGORY_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_sb2024`, u.SB2024, SB_CATEGORY_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_sb2025`, u.SB2025, SB_CATEGORY_OPTIONS)}</td>
@@ -9290,10 +9314,10 @@ function renderEditManagementUnitView(){
     </tr>`).join('');
   container.innerHTML = `<div class="table-scroll"><table class="preview"><thead><tr>
       <th>Valley</th><th>Zone (Nom)</th><th>Site</th><th>Surface 2D</th><th>Surface 3D</th>
-      <th>Veg 2023</th><th>Veg 2024</th><th>Veg 2025</th>
+      <th>Veg 2023</th><th>Veg 2024</th><th>Veg 2025</th><th>Dominance</th>
       <th>SB 2023</th><th>SB 2024</th><th>SB 2025</th>
       <th>Plant 2023</th><th>Plant 2024</th><th>Plant 2025</th>
-    </tr></thead><tbody>${rowsHtml || '<tr><td colspan="14" class="muted">No units for this valley.</td></tr>'}</tbody></table></div>`;
+    </tr></thead><tbody>${rowsHtml || '<tr><td colspan="15" class="muted">No units for this valley.</td></tr>'}</tbody></table></div>`;
   editHistDirtyRows.clear();
   updateEditHistSaveBar();
   // Deliberately does NOT touch #editHistSaveStatus here: this function also runs from a background
