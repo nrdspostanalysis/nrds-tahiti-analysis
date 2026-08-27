@@ -9169,13 +9169,22 @@ const PLANT_CATEGORY_OPTIONS = [
 ];
 // Overrides vegNativeDominance()'s auto-parse of the free-text Veg2023/2024/2025 fields (used
 // everywhere: TO CUT/TO MAINTAIN dominance tiering, TO PLANT typology, the map's dominance-colored
-// layers, τ genus selection) — for a zone where that heuristic word-parse got it wrong.
-const DOMINANCE_OVERRIDE_OPTIONS = [
-  { value:'', label:'— auto (from vegetation text) —' },
-  { value:'native', label:'Native' },
-  { value:'invasive', label:'Invasive' },
-  { value:'anthropic', label:'Anthropic' },
-];
+// layers, τ genus selection) — for a zone where that heuristic word-parse got it wrong. The "Auto"
+// option's label always shows what the auto-detected value currently is (not a generic placeholder),
+// so the current effective classification is readable at a glance without leaving the dropdown open.
+function dominanceSelectHtml(id, u){
+  const auto = latestVegDominance({ ...u, DominanceOverride: null });
+  const autoLabel = !auto ? 'no data' : auto.dominance === 'native' ? 'Native' : auto.dominance === 'invasive' ? 'Invasive' : auto.dominance === 'anthropic' ? 'Anthropic' : 'no data';
+  const current = u.DominanceOverride || '';
+  const options = [
+    { value:'', label:'Auto: '+autoLabel },
+    { value:'native', label:'Native' },
+    { value:'invasive', label:'Invasive' },
+    { value:'anthropic', label:'Anthropic' },
+  ];
+  const optsHtml = options.map(o => `<option value="${escapeHtml(o.value)}" ${o.value===current?'selected':''}>${escapeHtml(o.label)}</option>`).join('');
+  return `<select id="${id}" style="width:100%;min-width:130px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)">${optsHtml}</select>`;
+}
 let editHistValleyFilter = 'all';
 let editHistDirtyRows = new Set(); // indices into editHistRowsMeta for the currently-rendered table
 let editHistRowsMeta = []; // [{nom, valley}, ...] in the same order as the rendered <tr>s
@@ -9304,7 +9313,7 @@ function renderEditManagementUnitView(){
       <td><input type="text" id="ehField_${i}_veg2023" value="${escapeHtml(u.Veg2023||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
       <td><input type="text" id="ehField_${i}_veg2024" value="${escapeHtml(u.Veg2024||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
       <td><input type="text" id="ehField_${i}_veg2025" value="${escapeHtml(u.Veg2025||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
-      <td>${categorySelectHtml(`ehField_${i}_dominance`, u.DominanceOverride, DOMINANCE_OVERRIDE_OPTIONS)}</td>
+      <td>${dominanceSelectHtml(`ehField_${i}_dominance`, u)}</td>
       <td>${categorySelectHtml(`ehField_${i}_sb2023`, u.SB2023, SB_CATEGORY_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_sb2024`, u.SB2024, SB_CATEGORY_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_sb2025`, u.SB2025, SB_CATEGORY_OPTIONS)}</td>
