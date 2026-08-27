@@ -9897,7 +9897,13 @@ function combinedCategoryStats(cat){
   const rows = enriched.mainRows.filter(r => cat.actions.includes(r.Action));
   const dated = rows.filter(r => r.Date).sort((a,b) => new Date(b.Date) - new Date(a.Date));
   const last = dated.length ? dated[0] : null;
-  const base = { count: rows.length, lastDate: last ? last.Date : null, lastZone: last ? (last.Unit_Name || null) : null };
+  // zonesWorked/totalPeopleVisits are genuinely comparable across both categories regardless of
+  // metric (Number_of_Person is collected on every Habitat Restoration submission, not just
+  // cutting/maintenance) — a real removal-effort-vs-planting-effort read, unlike forcing hours onto
+  // plantation or individuals onto cutting/maintenance where neither concept actually applies.
+  const base = { count: rows.length, lastDate: last ? last.Date : null, lastZone: last ? (last.Unit_Name || null) : null,
+    zonesWorked: new Set(rows.map(r => r.Unit_Name).filter(Boolean)).size,
+    totalPeopleVisits: rows.reduce((s,r) => s + (+r.Number_of_Person || 0), 0) };
   if (cat.metric === 'hours'){
     const anyMissingHours = rows.some(r => !(isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0));
     const totalPersonHours = rows.reduce((s,r) => {
@@ -9905,11 +9911,10 @@ function combinedCategoryStats(cat){
       const hours = (isFinite(h) && h > 0) ? h : HOURS_PER_DAY_FALLBACK;
       return s + hours * (+r.Number_of_Person || 1);
     }, 0);
-    return { ...base, totalPersonHours, avgPersonHours: rows.length ? totalPersonHours / rows.length : null, anyMissingHours,
-      lastRatStation: last && last.Rat_Stations ? last.Rat_Stations.split(';').filter(Boolean).join(', ') : null };
+    return { ...base, totalPersonHours, anyMissingHours };
   }
   const totalIndividuals = rows.reduce((s,r) => s + (r.Total_Individuals||0), 0);
-  return { ...base, totalIndividuals, avgIndividuals: rows.length ? totalIndividuals / rows.length : null };
+  return { ...base, totalIndividuals };
 }
 function combinedCategoryMonthlySeries(){
   const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -9935,15 +9940,19 @@ function combinedCategoryMonthlySeries(){
 function renderCleaningVsMaintenanceDropdown(){
   const stats = COMBINED_CATEGORIES.map(c => ({ ...c, ...combinedCategoryStats(c) }));
 
+  // Rows are ordered genuinely-comparable-first: sessions/zones-worked/people-visits mean the same
+  // thing on both sides (a real removal-effort-vs-planting-effort read), then the two metrics that
+  // only exist on one side each (hours has no meaning for plantation, individuals-planted has none
+  // for cutting/maintenance — "-" there reflects that the concept doesn't apply, not missing data),
+  // then recency.
   const compareRows = [
     ['Sessions recorded', s => s.count],
-    ['Total person-hours', s => s.totalPersonHours != null ? s.totalPersonHours.toFixed(0) + (s.anyMissingHours ? '*' : '') : '—'],
-    ['Avg person-hours / session', s => s.avgPersonHours != null ? s.avgPersonHours.toFixed(1) + (s.anyMissingHours ? '*' : '') : '—'],
+    ['Zones worked in', s => s.zonesWorked],
+    ['Total person-visits', s => s.totalPeopleVisits],
+    ['Total effort (person-hours)', s => s.totalPersonHours != null ? s.totalPersonHours.toFixed(0) + (s.anyMissingHours ? '*' : '') : '—'],
     ['Total individuals planted', s => s.totalIndividuals != null ? s.totalIndividuals : '—'],
-    ['Avg individuals / session', s => s.avgIndividuals != null ? s.avgIndividuals.toFixed(1) : '—'],
-    ['Last zone', s => escapeHtml(s.lastZone || '—')],
-    ['Last rat station', s => s.lastRatStation !== undefined ? escapeHtml(s.lastRatStation || '—') : '—'],
     ['Most recent session', s => s.lastDate || '—'],
+    ['Last zone', s => escapeHtml(s.lastZone || '—')],
   ];
   const anyMissingHoursOverall = stats.some(s => s.anyMissingHours);
   const compareTable = `<div class="table-scroll"><table class="preview"><thead><tr><th></th>` +
