@@ -2023,8 +2023,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button type="button" class="nav-tile" onclick="showCuttingVsMaintenanceView()">
     <span class="nav-tile-icon">🌿</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">4. Cutting vs plantation maintenance</span>
-      <span class="nav-tile-sub">Compared side by side, sessions per month</span>
+      <span class="nav-tile-title">4. Cutting &amp; Maintenance vs Plantation</span>
+      <span class="nav-tile-sub">Invasive removal/control work vs new planting, compared side by side</span>
     </span>
   </button>
 
@@ -2073,8 +2073,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="wrap" id="cuttingVsMaintenanceView" style="display:none;">
   <button class="secondary" onclick="showFieldWorkView()" style="margin-bottom:16px;">← Back to Field Work</button>
   <div class="card">
-    <h2>Cutting vs plantation maintenance — compared</h2>
-    <div class="hint">CUTTING and MAINTENANCE both log person-hours per session but target different work — kept separate here rather than blended into one number.</div>
+    <h2>Cutting &amp; Maintenance vs Plantation — compared</h2>
+    <div class="hint">Invasive undergrowth removal/control (CUTTING + MAINTENANCE, measured in person-hours) versus new planting (PLANTATION, measured in individuals planted) — the two fundamentally different kinds of field work this app tracks, compared side by side rather than blended into one number.</div>
     <div id="cuttingVsMaintenanceViewContent"></div>
   </div>
 </div>
@@ -9879,69 +9879,70 @@ function renderLastRatLineCleaningDropdown(mainRows){
   return `<div class="muted" style="margin-bottom:8px;">${countLabel}</div>${valleySelect}${inner}`;
 }
 
-// Both action types log person-hours per session but target different work — undergrowth cutting
-// along a rat line/zone vs. maintenance immediately around a specific plantation. Kept visually and
-// numerically distinct here (same reason the zone cutting estimate above only counts CUTTING_ACTION).
-const CLEANING_CATEGORY_HEX = {
-  [CUTTING_ACTION]: '#1f77b4',
-  MAINTENANCE: '#e67e22'
-};
-const CLEANING_CATEGORY_SHORT = {
-  [CUTTING_ACTION]: 'Cutting undergrowth',
-  MAINTENANCE: 'Plantation maintenance'
-};
-// The old arrival%->end% fields are gone from NRDS as of 2026-08-25 (see data/live/README.md),
-// replaced by Number_of_Hours — so "progress per session" is now expressed as person-hours
-// (hours x headcount, same HOURS_PER_DAY_FALLBACK convention used everywhere else in the app for
-// older rows that predate the "Number of hours" question) instead of a % delta.
-function cleaningCategoryStats(action){
-  const rows = enriched.mainRows.filter(r => r.Action === action);
-  const anyMissingHours = rows.some(r => !(isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0));
-  const totalPersonHours = rows.reduce((s,r) => {
-    const h = +r.Number_of_Hours;
-    const hours = (isFinite(h) && h > 0) ? h : HOURS_PER_DAY_FALLBACK;
-    return s + hours * (+r.Number_of_Person || 1);
-  }, 0);
-  const avgPersonHours = rows.length ? totalPersonHours / rows.length : null;
+// This widget compares the two fundamentally different kinds of field work the app tracks:
+// invasive undergrowth removal/control (CUTTING + MAINTENANCE, both logged in person-hours) versus
+// new planting (PLANTATION, logged in individuals planted — it has no hours field). 2026-08-27
+// (Marco): previously compared CUTTING against MAINTENANCE against each other, which just split
+// "removal work" into two halves instead of showing the actual removal-vs-planting balance this
+// view is meant to answer — regrouped into these two categories instead.
+const COMBINED_CATEGORIES = [
+  { key: 'cutting_maintenance', short: 'Cutting & Maintenance', color: '#1f77b4', actions: ['CUTTING', 'MAINTENANCE'], metric: 'hours' },
+  { key: 'plantation', short: 'Plantation', color: '#2ca02c', actions: ['PLANTATION'], metric: 'individuals' },
+];
+// Per-category stats, computed differently depending on the category's natural unit: person-hours
+// (hours x headcount, same HOURS_PER_DAY_FALLBACK convention used everywhere else for rows that
+// predate NRDS's "Number of hours" question, added 2026-08-25) for cutting/maintenance, individuals
+// planted for plantation.
+function combinedCategoryStats(cat){
+  const rows = enriched.mainRows.filter(r => cat.actions.includes(r.Action));
   const dated = rows.filter(r => r.Date).sort((a,b) => new Date(b.Date) - new Date(a.Date));
   const last = dated.length ? dated[0] : null;
-  return {
-    count: rows.length, avgPersonHours, totalPersonHours, anyMissingHours,
-    lastDate: last ? last.Date : null,
-    lastZone: last ? (last.Unit_Name || null) : null,
-    lastRatStation: last && last.Rat_Stations ? last.Rat_Stations.split(';').filter(Boolean).join(', ') : null,
-  };
+  const base = { count: rows.length, lastDate: last ? last.Date : null, lastZone: last ? (last.Unit_Name || null) : null };
+  if (cat.metric === 'hours'){
+    const anyMissingHours = rows.some(r => !(isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0));
+    const totalPersonHours = rows.reduce((s,r) => {
+      const h = +r.Number_of_Hours;
+      const hours = (isFinite(h) && h > 0) ? h : HOURS_PER_DAY_FALLBACK;
+      return s + hours * (+r.Number_of_Person || 1);
+    }, 0);
+    return { ...base, totalPersonHours, avgPersonHours: rows.length ? totalPersonHours / rows.length : null, anyMissingHours,
+      lastRatStation: last && last.Rat_Stations ? last.Rat_Stations.split(';').filter(Boolean).join(', ') : null };
+  }
+  const totalIndividuals = rows.reduce((s,r) => s + (r.Total_Individuals||0), 0);
+  return { ...base, totalIndividuals, avgIndividuals: rows.length ? totalIndividuals / rows.length : null };
 }
-function cleaningCategoryMonthlySeries(){
+function combinedCategoryMonthlySeries(){
   const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const mLabel = m => { const [yr,mo] = m.split('-'); return MONTH_ABBR[+mo-1]+' '+yr.slice(2); };
-  const actions = Object.keys(CLEANING_CATEGORY_HEX);
   const monthsSet = new Set();
-  const counts = {}; actions.forEach(a => counts[a] = {});
+  const counts = COMBINED_CATEGORIES.map(() => ({}));
   for (const r of enriched.mainRows){
-    if (!counts[r.Action] || !r.Date) continue;
+    if (!r.Date) continue;
+    const catIdx = COMBINED_CATEGORIES.findIndex(c => c.actions.includes(r.Action));
+    if (catIdx === -1) continue;
     const month = r.Date.substring(0,7);
     monthsSet.add(month);
-    counts[r.Action][month] = (counts[r.Action][month]||0) + 1;
+    counts[catIdx][month] = (counts[catIdx][month]||0) + 1;
   }
   const months = [...monthsSet].sort();
   const monthLabels = months.map(mLabel);
-  const series = actions.map(a => ({
-    label: CLEANING_CATEGORY_SHORT[a], color: CLEANING_CATEGORY_HEX[a],
-    values: months.map(m => counts[a][m] || 0)
+  const series = COMBINED_CATEGORIES.map((c,i) => ({
+    label: c.short, color: c.color,
+    values: months.map(m => counts[i][m] || 0)
   }));
   return { monthLabels, series };
 }
 function renderCleaningVsMaintenanceDropdown(){
-  const actions = Object.keys(CLEANING_CATEGORY_HEX);
-  const stats = actions.map(a => ({ action:a, short:CLEANING_CATEGORY_SHORT[a], color:CLEANING_CATEGORY_HEX[a], ...cleaningCategoryStats(a) }));
+  const stats = COMBINED_CATEGORIES.map(c => ({ ...c, ...combinedCategoryStats(c) }));
 
   const compareRows = [
     ['Sessions recorded', s => s.count],
-    ['Total person-hours', s => s.totalPersonHours.toFixed(0) + (s.anyMissingHours ? '*' : '')],
+    ['Total person-hours', s => s.totalPersonHours != null ? s.totalPersonHours.toFixed(0) + (s.anyMissingHours ? '*' : '') : '—'],
     ['Avg person-hours / session', s => s.avgPersonHours != null ? s.avgPersonHours.toFixed(1) + (s.anyMissingHours ? '*' : '') : '—'],
+    ['Total individuals planted', s => s.totalIndividuals != null ? s.totalIndividuals : '—'],
+    ['Avg individuals / session', s => s.avgIndividuals != null ? s.avgIndividuals.toFixed(1) : '—'],
     ['Last zone', s => escapeHtml(s.lastZone || '—')],
-    ['Last rat station', s => escapeHtml(s.lastRatStation || '—')],
+    ['Last rat station', s => s.lastRatStation !== undefined ? escapeHtml(s.lastRatStation || '—') : '—'],
     ['Most recent session', s => s.lastDate || '—'],
   ];
   const anyMissingHoursOverall = stats.some(s => s.anyMissingHours);
@@ -9950,7 +9951,7 @@ function renderCleaningVsMaintenanceDropdown(){
     compareRows.map(([label,fn]) => `<tr><td>${label}</td>` + stats.map(s => `<td>${fn(s)}</td>`).join('') + `</tr>`).join('') +
     `</tbody></table></div>`;
 
-  const { monthLabels, series } = cleaningCategoryMonthlySeries();
+  const { monthLabels, series } = combinedCategoryMonthlySeries();
   const maxCount = Math.max(1, ...series.flatMap(s => s.values));
   const freqChart = monthLabels.length
     ? drawTrendChart(series, monthLabels, { maxVal: maxCount, unit: '' })
@@ -9958,14 +9959,20 @@ function renderCleaningVsMaintenanceDropdown(){
   const legend = stats.map(s => `<span class="legend-item"><span class="swatch" style="background:${s.color}"></span>${escapeHtml(s.short)}</span>`).join('');
 
   const recentTables = stats.map(s => {
-    const rows = enriched.mainRows.filter(r => r.Action === s.action && r.Date)
+    const rows = enriched.mainRows.filter(r => s.actions.includes(r.Action) && r.Date)
       .sort((a,b) => new Date(b.Date) - new Date(a.Date)).slice(0, 8);
     const inner = rows.length ? rows.map(r => {
-      const h = +r.Number_of_Hours;
-      const hasHours = isFinite(h) && h > 0;
-      const people = +r.Number_of_Person || null;
-      const personHours = people != null ? (hasHours ? h : HOURS_PER_DAY_FALLBACK) * people : null;
-      const workTxt = personHours != null ? `${personHours.toFixed(0)} person-h${hasHours?'':'*'}` : '—';
+      let workTxt;
+      if (s.metric === 'hours'){
+        const h = +r.Number_of_Hours;
+        const hasHours = isFinite(h) && h > 0;
+        const people = +r.Number_of_Person || null;
+        const personHours = people != null ? (hasHours ? h : HOURS_PER_DAY_FALLBACK) * people : null;
+        workTxt = personHours != null ? `${personHours.toFixed(0)} person-h${hasHours?'':'*'}` : '—';
+      } else {
+        const species = (r.Species_Planted||'').split(';').filter(Boolean).join(', ');
+        workTxt = r.Total_Individuals ? `${r.Total_Individuals} planted${species ? ' ('+species+')' : ''}` : '—';
+      }
       return `<div style="display:flex;flex-wrap:wrap;row-gap:4px;align-items:flex-start;gap:8px;padding:6px 9px;margin-bottom:3px;background:#f7faf6;border-left:4px solid ${s.color};border-radius:0 6px 6px 0;font-size:12px;max-width:100%;">
         <span style="min-width:75px;color:#555;">${escapeHtml(r.Date)}</span>
         <span style="min-width:80px;font-weight:600;">${escapeHtml(r.Unit_Name||'—')} <span class="muted" style="font-weight:400;">(${escapeHtml(r.Valley||'—')})</span></span>
@@ -9977,7 +9984,7 @@ function renderCleaningVsMaintenanceDropdown(){
     return `<div style="flex:1;min-width:240px;"><b style="color:${s.color};font-size:12.5px;">${escapeHtml(s.short)}</b><div style="margin-top:4px;">${inner}</div></div>`;
   }).join('');
 
-  return `<div class="muted" style="margin-bottom:8px;">Both log person-hours per session but target different work — kept separate here (and in the zone cutting estimate) instead of blended into one number.</div>
+  return `<div class="muted" style="margin-bottom:8px;">Invasive removal/control (person-hours) vs new planting (individuals) — the two fundamentally different kinds of field work this app tracks, kept side by side instead of blended into one number.</div>
     ${compareTable}
     <h3 style="font-size:13px;margin:12px 0 4px;">Sessions per month</h3>
     ${freqChart}
