@@ -1039,18 +1039,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
   </button>
 
   <button type="button" class="nav-tile" onclick="showFieldWorkView()">
-    <span class="nav-tile-icon">🚜</span>
+    <span class="nav-tile-icon">🛠️</span>
     <span class="nav-tile-text">
       <span class="nav-tile-title">4. Field Work</span>
-      <span class="nav-tile-sub">Priority zones, last planting &amp; cleaning actions, rat lines, cutting vs maintenance</span>
-    </span>
-  </button>
-
-  <button type="button" class="nav-tile" onclick="showRepeatPairsView()">
-    <span class="nav-tile-icon">🔁</span>
-    <span class="nav-tile-text">
-      <span class="nav-tile-title">5. Repeat-visit pairs — τ check</span>
-      <span class="nav-tile-sub">Empirical regrowth-rate diagnostic for the recency-decay τ</span>
+      <span class="nav-tile-sub">Priority zones, planting &amp; cleaning actions, rat lines, maintenance, τ check</span>
     </span>
   </button>
 
@@ -1960,10 +1952,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 <div class="wrap" id="repeatPairsView" style="display:none;">
 
-  <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
+  <button class="secondary" onclick="showFieldWorkView()" style="margin-bottom:16px;">← Back to Field Work</button>
 
   <div class="card" id="repeatPairsCard">
-    <h2>5. Repeat-visit pairs — empirical τ check</h2>
+    <h2>Repeat-visit pairs — empirical τ check</h2>
     <div class="hint">Diagnostic for the recency-decay τ used in the Combined Cleaning Estimate (τ_Miconia / τ_Spathodea,
       editable in the "Combined current estimate" calc box on the map). When the same zone has two cleaning sessions
       logged back to back, the drop from the first visit's "end of day" % to the second visit's "arrival" % — over the
@@ -2017,6 +2009,14 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <span class="nav-tile-text">
       <span class="nav-tile-title">5. Cutting vs plantation maintenance</span>
       <span class="nav-tile-sub">Compared side by side, sessions per month</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showRepeatPairsView()">
+    <span class="nav-tile-icon">🔁</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">6. Repeat-visit pairs — τ check</span>
+      <span class="nav-tile-sub">Empirical regrowth-rate diagnostic for the recency-decay τ</span>
     </span>
   </button>
 
@@ -5631,24 +5631,26 @@ function showAnalysisView(){
   if (location.hash !== '#analysis') location.hash = 'analysis';
   window.scrollTo(0,0);
 }
+// Field Work is a second-level menu (same "big button + back" pattern as Submit's form picker)
+// bundling priority zones / last planting / last cleaning / last rat line / cutting-vs-maintenance /
+// repeat-visit-pairs τ check, which used to be separate top-level home tiles — moved 2026-08-26/27
+// under one "Field Work" tile to shorten the home page. Their content (#priorityViewContent etc.) is
+// filled by onDataUpdated() same as before, just into a different container; each still has its own
+// hash so a direct link still works, but its "back" button now returns to the Field Work menu rather
+// than the dashboard, same convention as the Submit sub-forms always returning to showSubmitView().
+// The 6 Field Work detail views are siblings, not nested inside fieldWorkView's DOM — each show*
+// function below must explicitly hide the other 5 (and the fieldWorkView menu itself), otherwise
+// going back to the menu then opening a different detail view left the previous one's display:''
+// untouched and the new one rendered stacked underneath it.
+const FIELD_WORK_DETAIL_VIEW_IDS = ['priorityView','lastPlantingView','lastCleaningView','lastRatLineView','cuttingVsMaintenanceView','repeatPairsView'];
 function showRepeatPairsView(){
   document.getElementById('homeView').style.display = 'none';
+  document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('repeatPairsView').style.display = '';
   if (location.hash !== '#repeat-pairs') location.hash = 'repeat-pairs';
   window.scrollTo(0,0);
 }
-// Field Work is a second-level menu (same "big button + back" pattern as Submit's form picker)
-// bundling priority zones / last planting / last cleaning / last rat line / cutting-vs-maintenance,
-// which used to be 5 separate top-level home tiles — moved 2026-08-26 under one "Field Work" tile
-// to shorten the home page. Their content (#priorityViewContent etc.) is filled by onDataUpdated()
-// same as before, just into a different container; each still has its own hash so a direct link
-// still works, but its "back" button now returns to the Field Work menu rather than the dashboard,
-// same convention as the Submit sub-forms always returning to showSubmitView().
-// The 5 Field Work detail views are siblings, not nested inside fieldWorkView's DOM — each show*
-// function below must explicitly hide the other 4 (and the fieldWorkView menu itself), otherwise
-// going back to the menu then opening a different detail view left the previous one's display:''
-// untouched and the new one rendered stacked underneath it.
-const FIELD_WORK_DETAIL_VIEW_IDS = ['priorityView','lastPlantingView','lastCleaningView','lastRatLineView','cuttingVsMaintenanceView'];
 function showFieldWorkView(){
   document.getElementById('homeView').style.display = 'none';
   FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
@@ -5701,7 +5703,6 @@ function showHomeView(){
   SUBMIT_FORM_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('mapView').style.display = 'none';
   document.getElementById('analysisView').style.display = 'none';
-  document.getElementById('repeatPairsView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
   FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('homeView').style.display = '';
