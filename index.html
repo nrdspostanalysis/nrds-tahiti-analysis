@@ -5644,8 +5644,14 @@ function showRepeatPairsView(){
 // same as before, just into a different container; each still has its own hash so a direct link
 // still works, but its "back" button now returns to the Field Work menu rather than the dashboard,
 // same convention as the Submit sub-forms always returning to showSubmitView().
+// The 5 Field Work detail views are siblings, not nested inside fieldWorkView's DOM — each show*
+// function below must explicitly hide the other 4 (and the fieldWorkView menu itself), otherwise
+// going back to the menu then opening a different detail view left the previous one's display:''
+// untouched and the new one rendered stacked underneath it.
+const FIELD_WORK_DETAIL_VIEW_IDS = ['priorityView','lastPlantingView','lastCleaningView','lastRatLineView','cuttingVsMaintenanceView'];
 function showFieldWorkView(){
   document.getElementById('homeView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('fieldWorkView').style.display = '';
   if (location.hash !== '#field-work') location.hash = 'field-work';
   window.scrollTo(0,0);
@@ -5653,6 +5659,7 @@ function showFieldWorkView(){
 function showPriorityView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('priorityView').style.display = '';
   if (location.hash !== '#priority') location.hash = 'priority';
   window.scrollTo(0,0);
@@ -5660,6 +5667,7 @@ function showPriorityView(){
 function showLastPlantingView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('lastPlantingView').style.display = '';
   if (location.hash !== '#last-planting') location.hash = 'last-planting';
   window.scrollTo(0,0);
@@ -5667,6 +5675,7 @@ function showLastPlantingView(){
 function showLastCleaningView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('lastCleaningView').style.display = '';
   if (location.hash !== '#last-cleaning') location.hash = 'last-cleaning';
   window.scrollTo(0,0);
@@ -5674,6 +5683,7 @@ function showLastCleaningView(){
 function showLastRatLineView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('lastRatLineView').style.display = '';
   if (location.hash !== '#rat-line-cleaning') location.hash = 'rat-line-cleaning';
   window.scrollTo(0,0);
@@ -5681,6 +5691,7 @@ function showLastRatLineView(){
 function showCuttingVsMaintenanceView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('cuttingVsMaintenanceView').style.display = '';
   if (location.hash !== '#cutting-vs-maintenance') location.hash = 'cutting-vs-maintenance';
   window.scrollTo(0,0);
@@ -5692,11 +5703,7 @@ function showHomeView(){
   document.getElementById('analysisView').style.display = 'none';
   document.getElementById('repeatPairsView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
-  document.getElementById('priorityView').style.display = 'none';
-  document.getElementById('lastPlantingView').style.display = 'none';
-  document.getElementById('lastCleaningView').style.display = 'none';
-  document.getElementById('lastRatLineView').style.display = 'none';
-  document.getElementById('cuttingVsMaintenanceView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('homeView').style.display = '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   window.scrollTo(0,0);
