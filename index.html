@@ -1996,18 +1996,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </span>
   </button>
 
-  <button type="button" class="nav-tile" onclick="showLastRatLineView()">
-    <span class="nav-tile-icon">🧹✨</span>
-    <span class="nav-tile-text">
-      <span class="nav-tile-title">4. Last rat line cleaning</span>
-      <span class="nav-tile-sub">Per-line "Cleaned" flag, separate from zone cleaning</span>
-    </span>
-  </button>
-
   <button type="button" class="nav-tile" onclick="showCuttingVsMaintenanceView()">
     <span class="nav-tile-icon">🌿</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">5. Cutting vs plantation maintenance</span>
+      <span class="nav-tile-title">4. Cutting vs plantation maintenance</span>
       <span class="nav-tile-sub">Compared side by side, sessions per month</span>
     </span>
   </button>
@@ -2015,7 +2007,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button type="button" class="nav-tile" onclick="showRepeatPairsView()">
     <span class="nav-tile-icon">🔁</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">6. Repeat-visit pairs — τ check</span>
+      <span class="nav-tile-title">5. Repeat-visit pairs — τ check</span>
       <span class="nav-tile-sub">Empirical regrowth-rate diagnostic for the recency-decay τ</span>
     </span>
   </button>
@@ -2047,12 +2039,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <div class="hint">Every CUTTING/MAINTENANCE action recorded, filterable by valley and zone, with a per-zone summary.</div>
     <div id="lastCleaningViewContent"></div>
   </div>
-</div>
-
-<div class="wrap" id="lastRatLineView" style="display:none;">
-  <button class="secondary" onclick="showFieldWorkView()" style="margin-bottom:16px;">← Back to Field Work</button>
   <div class="card">
-    <h2>Last rat line cleaning</h2>
+    <h2>🧹✨ Last rat line cleaning</h2>
     <div class="hint">Rat-line cleaning is logged separately from zone-level cleaning actions (a per-line YES/NO "Cleaned" flag).</div>
     <div id="lastRatLineViewContent"></div>
   </div>
@@ -5632,17 +5620,20 @@ function showAnalysisView(){
   window.scrollTo(0,0);
 }
 // Field Work is a second-level menu (same "big button + back" pattern as Submit's form picker)
-// bundling priority zones / last planting / last cleaning / last rat line / cutting-vs-maintenance /
-// repeat-visit-pairs τ check, which used to be separate top-level home tiles — moved 2026-08-26/27
-// under one "Field Work" tile to shorten the home page. Their content (#priorityViewContent etc.) is
-// filled by onDataUpdated() same as before, just into a different container; each still has its own
-// hash so a direct link still works, but its "back" button now returns to the Field Work menu rather
-// than the dashboard, same convention as the Submit sub-forms always returning to showSubmitView().
-// The 6 Field Work detail views are siblings, not nested inside fieldWorkView's DOM — each show*
-// function below must explicitly hide the other 5 (and the fieldWorkView menu itself), otherwise
+// bundling priority zones / last planting / last cleaning / cutting-vs-maintenance / repeat-visit-
+// pairs τ check, which used to be separate top-level home tiles — moved 2026-08-26/27 under one
+// "Field Work" tile to shorten the home page. "Last rat line cleaning" (2026-08-27) is no longer a
+// tile of its own — it's now a second card inside the Last cleaning actions view (#lastCleaningView),
+// still rendered into its own #lastRatLineViewContent container by the same onDataUpdated() call.
+// Their content is filled by onDataUpdated() same as before, just into a different container; each
+// still has its own hash so a direct link still works, but its "back" button now returns to the
+// Field Work menu rather than the dashboard, same convention as the Submit sub-forms always
+// returning to showSubmitView().
+// The Field Work detail views are siblings, not nested inside fieldWorkView's DOM — each show*
+// function below must explicitly hide the others (and the fieldWorkView menu itself), otherwise
 // going back to the menu then opening a different detail view left the previous one's display:''
 // untouched and the new one rendered stacked underneath it.
-const FIELD_WORK_DETAIL_VIEW_IDS = ['priorityView','lastPlantingView','lastCleaningView','lastRatLineView','cuttingVsMaintenanceView','repeatPairsView'];
+const FIELD_WORK_DETAIL_VIEW_IDS = ['priorityView','lastPlantingView','lastCleaningView','cuttingVsMaintenanceView','repeatPairsView'];
 function showRepeatPairsView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
@@ -5680,14 +5671,6 @@ function showLastCleaningView(){
   FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
   document.getElementById('lastCleaningView').style.display = '';
   if (location.hash !== '#last-cleaning') location.hash = 'last-cleaning';
-  window.scrollTo(0,0);
-}
-function showLastRatLineView(){
-  document.getElementById('homeView').style.display = 'none';
-  document.getElementById('fieldWorkView').style.display = 'none';
-  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
-  document.getElementById('lastRatLineView').style.display = '';
-  if (location.hash !== '#rat-line-cleaning') location.hash = 'rat-line-cleaning';
   window.scrollTo(0,0);
 }
 function showCuttingVsMaintenanceView(){
@@ -5734,7 +5717,7 @@ const HASH_VIEW_FNS = {
   '#form-bo': showBoView, '#form-at': showAtView, '#form-ae': showAeEntryView,
   '#field-work': showFieldWorkView,
   '#priority': showPriorityView, '#last-planting': showLastPlantingView, '#last-cleaning': showLastCleaningView,
-  '#rat-line-cleaning': showLastRatLineView, '#cutting-vs-maintenance': showCuttingVsMaintenanceView,
+  '#rat-line-cleaning': showLastCleaningView, '#cutting-vs-maintenance': showCuttingVsMaintenanceView,
   '#repeat-pairs': showRepeatPairsView,
 };
 // Deferred via setTimeout, not called synchronously here: some view functions (e.g. showMapView,
