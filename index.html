@@ -1030,19 +1030,19 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </span>
   </button>
 
-  <button type="button" class="nav-tile" onclick="showAnalysisView()">
-    <span class="nav-tile-icon">📊</span>
-    <span class="nav-tile-text">
-      <span class="nav-tile-title">3. Chart analysis</span>
-      <span class="nav-tile-sub">Cleaning trend, species, workforce, bait consumption, PFF</span>
-    </span>
-  </button>
-
   <button type="button" class="nav-tile" onclick="showFieldWorkView()">
     <span class="nav-tile-icon">🛠️</span>
     <span class="nav-tile-text">
-      <span class="nav-tile-title">4. Field Work</span>
+      <span class="nav-tile-title">3. Field Work</span>
       <span class="nav-tile-sub">Priority zones, planting &amp; cleaning actions, rat lines, maintenance, τ check</span>
+    </span>
+  </button>
+
+  <button type="button" class="nav-tile" onclick="showAnalysisView()">
+    <span class="nav-tile-icon">📊</span>
+    <span class="nav-tile-text">
+      <span class="nav-tile-title">4. Chart analysis</span>
+      <span class="nav-tile-sub">Cleaning trend, species, workforce, bait consumption, PFF</span>
     </span>
   </button>
 
@@ -1359,7 +1359,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card">
     <details id="pffDetails" ontoggle="onPffDetailsToggle(this.open)">
     <summary><h2 style="display:inline;margin:0;">3. Petite fourmi de feu (PFF)</h2></summary>
-    <div class="hint">Log Little Fire Ant (Wasmannia auropunctata) survey points — choose a status, tap/click the map to add a point (add as many as you like before submitting — handy for logging a whole walk/transect in one go), then submit them all at once. They appear on "2. Map" (layer "Little Fire Ant (PFF)") and in "3. Chart analysis" for everyone within a few seconds.</div>
+    <div class="hint">Log Little Fire Ant (Wasmannia auropunctata) survey points — choose a status, tap/click the map to add a point (add as many as you like before submitting — handy for logging a whole walk/transect in one go), then submit them all at once. They appear on "2. Map" (layer "Little Fire Ant (PFF)") and in "4. Chart analysis" for everyone within a few seconds.</div>
     <form id="pffForm" onsubmit="submitPffForm(event)">
       <div class="row" style="margin-bottom:10px;">
         <label class="muted">Date: <input type="date" id="pffDate" required></label>
@@ -1907,7 +1907,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
 
   <div class="card" id="analysisCard">
-    <h2>3. Chart analysis</h2>
+    <h2>4. Chart analysis</h2>
     <div class="hint">Filter actions by valley, zone (management unit), and optionally a single rat station.</div>
     <div class="row" style="margin-bottom:12px;">
       <label class="muted">Valley:
@@ -9010,7 +9010,7 @@ function pastUnitLookupMap(){
 const STALE_DAYS = 180;
 
 // Per-zone inputs for the "Cleaning % trend over time" priority view: reuses the exact same combined
-// historical+NRDS estimate (recency- and station-coverage-weighted) shown on the map and in section 6,
+// historical+NRDS estimate (recency- and station-coverage-weighted) shown on the map and in Last cleaning actions,
 // so a zone ranked "worst" here is ranked worst everywhere else in the app too — one number, several views.
 // includeHist=false simply withholds the historical lookup, which combinedCleaningEstimate already
 // treats as "no historical snapshot" and falls back to an NRDS-only estimate — no separate code path needed.
@@ -9712,7 +9712,7 @@ function renderZonePriority(valley, rows){
     cleaning % was actually logged, so a zone whose visits were mostly planting (no cleaning % field filled in) will show fewer dots than its total
     number of NRDS entries` +
     (includeHist ? `, the hollow diamond (if present) is the historical baseline, and the bold outlined dot is the combined estimate (recency- and
-    coverage-weighted blend of the two, the same method used on the map and in section 6)` : ` and the bold outlined dot is the current NRDS-only estimate
+    coverage-weighted blend of the two, the same method used on the map and in Last cleaning actions)` : ` and the bold outlined dot is the current NRDS-only estimate
     — historical data is excluded by the checkbox above`) + `. Click any dot/diamond to pin a popup with the full breakdown (works on touch too).</div>`;
   html += `<div class="grid3" style="margin-bottom:10px;">
     <div class="stat"><div class="num">${data.length}</div><div class="lbl">zones in scope</div></div>
