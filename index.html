@@ -1050,11 +1050,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </span>
   </button>
 
-  <div class="card" id="previewCard" style="display:none;">
-    <h2>Enriched dataset preview (Habitat Restoration)</h2>
-    <div class="table-scroll"><table class="preview" id="previewTable"></table></div>
-  </div>
-
   <div class="card" id="downloadsCard" style="display:none;">
     <details id="downloadsDetails">
     <summary style="cursor:pointer;"><h2 style="display:inline;margin:0;">Downloads</h2></summary>
@@ -1072,6 +1067,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div style="font-weight:600;font-size:12.5px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">Analysis-ready (enriched)</div>
       <div class="row" style="flex-wrap:wrap;gap:8px;" id="enrichedDownloadButtons"></div>
     </div>
+
+    <details id="enrichedPreviewDetails" style="margin-top:14px;">
+      <summary style="cursor:pointer;font-weight:600;font-size:12.5px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;">Enriched dataset preview (Habitat Restoration)</summary>
+      <div class="table-scroll" style="margin-top:8px;"><table class="preview" id="previewTable"></table></div>
+    </details>
 
     <div style="margin-top:14px;">
       <div style="font-weight:600;font-size:12.5px;color:var(--green-dark);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">App-collected data</div>
@@ -6505,13 +6505,17 @@ document.addEventListener('click', e => {
   }
 });
 
+// Pct_cleaned_arrival/Pct_cleaned_end_of_day are permanently blank as of 2026-08-25 (NRDS dropped
+// those questions, see data/live/README.md) — shown here as Number_of_Hours instead, their real
+// replacement, same fix already applied to the "Habitat Restoration (NRDS)" download and the
+// Cutting vs plantation maintenance view. Now a collapsible section inside Downloads (was its own
+// always-visible home-page card) rather than a separate top-level section.
 function renderPreview(mainRows){
-  const cols = ['Identifier','Date','Valley','Unit_Name','Action','Pct_cleaned_arrival','Pct_cleaned_end_of_day','Location_Precision','Species_Planted','Total_Individuals'];
+  const cols = ['Identifier','Date','Valley','Unit_Name','Action','Number_of_Hours','Location_Precision','Species_Planted','Total_Individuals'];
   let html = '<thead><tr>' + cols.map(c=>`<th>${c}</th>`).join('') + '</tr></thead><tbody>';
   for (const r of mainRows) html += '<tr>' + cols.map(c=>`<td>${r[c]===undefined?'':r[c]}</td>`).join('') + '</tr>';
   html += '</tbody>';
   document.getElementById('previewTable').innerHTML = html;
-  document.getElementById('previewCard').style.display = '';
 }
 
 /* ---------------- charts (plain SVG, no external libs) ---------------- */
