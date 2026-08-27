@@ -9151,6 +9151,7 @@ function categorySelectHtml(id, currentRaw, options){
 function setEditHistValley(v){
   if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
   editHistValleyFilter = v;
+  clearEditHistSaveStatus();
   renderEditManagementUnitView();
 }
 function markEditHistDirty(el){
@@ -9169,7 +9170,12 @@ function updateEditHistSaveBar(){
   if (resetBtn) resetBtn.disabled = n === 0;
 }
 function resetEditHistChanges(){
+  clearEditHistSaveStatus();
   renderEditManagementUnitView(); // rebuilds the table from the current (last-saved) pastData, discarding any typed edits
+}
+function clearEditHistSaveStatus(){
+  const statusEl = document.getElementById('editHistSaveStatus');
+  if (statusEl) statusEl.innerHTML = '';
 }
 function readEditHistRow(rowIndex){
   const meta = editHistRowsMeta[rowIndex];
@@ -9196,9 +9202,9 @@ async function saveEditHistChanges(){
     for (const r of rows) pastDataOverrides.set(r.valley+'||'+r.nom, managementUnitOverrideRowToFields(r));
     applyPastDataOverrides();
     onDataUpdated();
-    statusEl.innerHTML = `<span class="ok">✓ Saved ${rows.length} zone${rows.length===1?'':'s'}.</span>`;
     editHistDirtyRows.clear();
-    renderEditManagementUnitView();
+    renderEditManagementUnitView(); // clears #editHistSaveStatus as part of its own reset (the div itself isn't recreated, so statusEl still points at it) — set the success message AFTER, not before
+    statusEl.innerHTML = `<span class="ok">✓ Saved ${rows.length} zone${rows.length===1?'':'s'}.</span>`;
   } catch (err) {
     statusEl.innerHTML = `<span class="err">Could not save: ${escapeHtml(err.message || String(err))}${!navigator.onLine ? ' (you appear to be offline)' : ''}</span>`;
   }
@@ -9268,8 +9274,11 @@ function renderEditManagementUnitView(){
     </tr></thead><tbody>${rowsHtml || '<tr><td colspan="14" class="muted">No units for this valley.</td></tr>'}</tbody></table></div>`;
   editHistDirtyRows.clear();
   updateEditHistSaveBar();
-  const statusEl = document.getElementById('editHistSaveStatus');
-  if (statusEl) statusEl.innerHTML = '';
+  // Deliberately does NOT touch #editHistSaveStatus here: this function also runs from a background
+  // realtime refresh right after a successful save (the app's own postgres_changes subscription
+  // echoes back its own write) — clearing the status here would silently wipe the "✓ Saved" message
+  // a moment after showing it. Callers that actually want a clean slate (reset, valley filter
+  // switch) clear it themselves before calling this.
 }
 
 // If the freshest contributing data point (historical or NRDS) behind a combined estimate is older
