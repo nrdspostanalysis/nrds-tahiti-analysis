@@ -1009,6 +1009,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <span style="font-size:13px;font-weight:600;">Add a New Submission</span>
       <button class="nav-btn" onclick="showSubmitView()" title="Submit new data">+</button>
     </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:13px;font-weight:600;">Edit Management Unit</span>
+      <button class="nav-btn" onclick="showEditManagementUnitView()" title="Edit the historical (Butaud survey) data for management units">🗂️</button>
+    </div>
   </div>
 </header>
 
@@ -1793,6 +1797,25 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 </div>
 
+<div class="wrap" id="editHistView" style="display:none;">
+
+  <button class="secondary" onclick="backFromEditHistView()" style="margin-bottom:16px;">← Back to dashboard</button>
+
+  <div class="card">
+    <h2>Edit Management Unit — historical data (Butaud survey)</h2>
+    <div class="hint">Every field here comes from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here.</div>
+    <div class="row" style="margin-top:10px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span id="editHistValleySelectWrap"></span>
+      <button class="secondary" id="editHistResetBtn" onclick="resetEditHistChanges()" disabled>Reset changes</button>
+      <button id="editHistSaveBtn" onclick="saveEditHistChanges()" disabled>Save changes</button>
+      <span id="editHistDirtyCount" class="muted">No unsaved changes</span>
+    </div>
+    <div id="editHistSaveStatus" style="margin-bottom:8px;"></div>
+    <div id="editHistTableContainer"></div>
+  </div>
+
+</div>
+
 <div class="wrap" id="mapView" style="display:none;">
 
   <button class="secondary" onclick="showHomeView()" style="margin-bottom:16px;">← Back to dashboard</button>
@@ -2118,7 +2141,20 @@ function parseCSV(text){
 let tables = {};
 let enriched = null;
 
+// pastData is the effective (base + user edits) historical dataset that every other feature reads.
+// pastDataBase is the raw embedded Butaud workbook, never mutated; pastDataOverrides holds per-zone
+// edits made via "Edit Management Unit" (see applyPastDataOverrides() and management_unit_overrides
+// further down), shared team-wide via Supabase like every other table in this app.
 let pastData = null;
+let pastDataBase = null;
+let pastDataOverrides = new Map(); // 'Valley||Nom' -> partial override fields (same keys as pastData rows)
+function applyPastDataOverrides(){
+  if (!pastDataBase) { pastData = null; return; }
+  pastData = pastDataBase.map(u => {
+    const ov = pastDataOverrides.get(u.Valley+'||'+u.Nom);
+    return ov ? { ...u, ...ov } : u;
+  });
+}
 
 /* ---------------- Offline submission queue (Habitat Restoration / Dératisation / PFF) ----------------
    A field worker with no mobile signal can still fill in and "submit" these 3 forms — the row(s) get
@@ -5511,9 +5547,47 @@ try {
   const binStr = atob(PAST_DATA_B64);
   const bytes = new Uint8Array(binStr.length);
   for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
-  pastData = parsePastDataWorkbook(bytes);
+  pastDataBase = parsePastDataWorkbook(bytes);
+  applyPastDataOverrides(); // pastData = pastDataBase for now; management_unit_overrides hasn't loaded yet
 } catch (err) {
   console.error('Error loading the embedded historical data:', err);
+}
+
+// User-editable overrides for the embedded historical dataset (see "Edit Management Unit" in the
+// header). Loaded/subscribed the same way as every other shared reference table (pff_symbol_map,
+// activity_types, ...) — requires the management_unit_overrides table + RLS policies described in
+// supabase_schema_management_unit_overrides.sql to exist in Supabase first.
+async function fetchManagementUnitOverrides(){
+  try {
+    const { data, error } = await window.sb.from('management_unit_overrides').select('*');
+    if (error) throw new Error(error.message);
+    pastDataOverrides = new Map();
+    for (const r of data) pastDataOverrides.set(r.valley+'||'+r.nom, managementUnitOverrideRowToFields(r));
+    _dbSave('managementUnitOverrides', data);
+  } catch(e) {
+    var cached = _dbLoad('managementUnitOverrides');
+    pastDataOverrides = new Map();
+    if (cached) { for (const r of cached.payload) pastDataOverrides.set(r.valley+'||'+r.nom, managementUnitOverrideRowToFields(r)); }
+    else console.warn('Management unit overrides: offline, no cache');
+  }
+  applyPastDataOverrides();
+  if (dataLoaded.ref && dataLoaded.habitat) onDataUpdated();
+  if (document.getElementById('editHistView') && document.getElementById('editHistView').style.display !== 'none') renderEditManagementUnitView();
+}
+function subscribeManagementUnitOverrides(){
+  fetchManagementUnitOverrides();
+  window.sb.channel('management_unit_overrides_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'management_unit_overrides' }, () => fetchManagementUnitOverrides())
+    .subscribe();
+}
+// Supabase row (snake_case) -> pastData field names (PascalCase, matches parsePastDataWorkbook()'s output)
+function managementUnitOverrideRowToFields(r){
+  return {
+    Site: r.site, Surface2D: r.surface2d, Surface3D: r.surface3d,
+    Veg2023: r.veg2023, Veg2024: r.veg2024, Veg2025: r.veg2025,
+    SB2023: r.sb2023, SB2024: r.sb2024, SB2025: r.sb2025,
+    Plant2023: r.plant2023, Plant2024: r.plant2024, Plant2025: r.plant2025,
+  };
 }
 
 /* ---------------- home / submit view switch ---------------- */
@@ -5525,6 +5599,9 @@ const SUBMIT_FORM_VIEW_IDS = ['hrFormView','drFormView','pffFormView','ibsFormVi
 function showSubmitView(){
   document.getElementById('homeView').style.display = 'none';
   SUBMIT_FORM_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
+  // editHistView is reachable from the header on any screen (not just home), same as this view's own
+  // "+" button — so it must be explicitly hidden here too, or the two would render stacked.
+  document.getElementById('editHistView').style.display = 'none';
   document.getElementById('submitView').style.display = '';
   if (location.hash !== '#submit') location.hash = 'submit';
   window.scrollTo(0,0);
@@ -5688,9 +5765,31 @@ function showHomeView(){
   document.getElementById('analysisView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
   FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('editHistView').style.display = 'none';
   document.getElementById('homeView').style.display = '';
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   window.scrollTo(0,0);
+}
+// editHistView is reachable from the header on every screen, so it needs its own show/back pair
+// (same reason showSubmitView() above explicitly hides it) rather than fitting the home-tile-driven
+// FIELD_WORK_DETAIL_VIEW_IDS pattern used by the other detail views.
+function showEditManagementUnitView(){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes in the Edit Management Unit table that will be discarded. Continue?')) return;
+  document.getElementById('homeView').style.display = 'none';
+  document.getElementById('mapView').style.display = 'none';
+  document.getElementById('analysisView').style.display = 'none';
+  document.getElementById('submitView').style.display = 'none';
+  SUBMIT_FORM_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('editHistView').style.display = '';
+  if (location.hash !== '#edit-management-unit') location.hash = 'edit-management-unit';
+  window.scrollTo(0,0);
+  renderEditManagementUnitView();
+}
+function backFromEditHistView(){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes in the Edit Management Unit table that will be discarded. Continue?')) return;
+  showHomeView();
 }
 // iOS "Add to Home Screen" hint — shown only on iPhone/iPad Safari that hasn't installed the app
 (function(){
@@ -5715,7 +5814,7 @@ const HASH_VIEW_FNS = {
   '#submit': showSubmitView, '#map': showMapView, '#analysis': showAnalysisView,
   '#form-hr': showHrView, '#form-dr': showDrView, '#form-pff': showPffFormView, '#form-ibs': showIbsView,
   '#form-bo': showBoView, '#form-at': showAtView, '#form-ae': showAeEntryView,
-  '#field-work': showFieldWorkView,
+  '#field-work': showFieldWorkView, '#edit-management-unit': showEditManagementUnitView,
   '#priority': showPriorityView, '#last-planting': showLastPlantingView, '#last-cleaning': showLastCleaningView,
   '#rat-line-cleaning': showLastCleaningView, '#cutting-vs-maintenance': showCuttingVsMaintenanceView,
   '#repeat-pairs': showRepeatPairsView,
@@ -5748,6 +5847,7 @@ whenSupabaseReady(() => {
   subscribeActivityEntries();
   subscribeBirdSurveys();
   subscribeBirdObservations();
+  subscribeManagementUnitOverrides();
   syncOfflineQueue(); // picks up anything queued in a previous session, if we're online now
 });
 loadReferenceData();
@@ -8983,6 +9083,133 @@ function combinedCleaningEstimate(hu, unitName, fallbackSt){
 }
 function pastUnitLookupMap(){
   return pastData ? new Map(pastData.map(u => [u.Valley+'||'+u.Nom, u])) : new Map();
+}
+
+/* ---------------- Edit Management Unit (historical Butaud data, user-editable) ---------------- */
+// Category dropdowns show canonical unaccented lowercase values (matching SB_WEIGHTS/PLANT_WEIGHTS'
+// keys exactly), independent of however the original xlsx cell was accented/capitalized — normalizeCategory()
+// already treats them as equivalent everywhere else in the app, so this doesn't change any behavior.
+const SB_CATEGORY_OPTIONS = [
+  { value:'', label:'— no data —' }, { value:'aucune', label:'Aucune' }, { value:'debutee', label:'Débutée' },
+  { value:'un tiers', label:'Un tiers' }, { value:'moitie', label:'Moitié' }, { value:'effectuee', label:'Effectuée' },
+  { value:'sans objet', label:'Sans objet' },
+];
+const PLANT_CATEGORY_OPTIONS = [
+  { value:'', label:'— no data —' }, { value:'aucune', label:'Aucune' }, { value:'rares', label:'Rares' },
+  { value:'un tiers', label:'Un tiers' }, { value:'moitie', label:'Moitié' }, { value:'effectuee', label:'Effectuée' },
+  { value:'sans objet', label:'Sans objet' },
+];
+let editHistValleyFilter = 'all';
+let editHistDirtyRows = new Set(); // indices into editHistRowsMeta for the currently-rendered table
+let editHistRowsMeta = []; // [{nom, valley}, ...] in the same order as the rendered <tr>s
+// Renders a <select> for a SB*/Plant* cell; preserves any value that doesn't match a known category
+// (rather than silently defaulting to blank) so an unusual historical entry survives an unrelated
+// edit elsewhere in the same row.
+function categorySelectHtml(id, currentRaw, options){
+  const norm = normalizeCategory(currentRaw);
+  const known = options.some(o => o.value !== '' && o.value === norm);
+  const optsList = (currentRaw && !known) ? options.concat([{ value: currentRaw, label: currentRaw + ' (raw, unrecognized)' }]) : options;
+  const optsHtml = optsList.map(o => {
+    const sel = currentRaw ? (o.value === currentRaw || (o.value !== '' && normalizeCategory(o.value) === norm)) : (o.value === '');
+    return `<option value="${escapeHtml(o.value)}" ${sel?'selected':''}>${escapeHtml(o.label)}</option>`;
+  }).join('');
+  return `<select id="${id}" style="width:100%;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)">${optsHtml}</select>`;
+}
+function setEditHistValley(v){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
+  editHistValleyFilter = v;
+  renderEditManagementUnitView();
+}
+function markEditHistDirty(el){
+  const tr = el.closest('tr');
+  if (!tr) return;
+  editHistDirtyRows.add(+tr.dataset.rowIndex);
+  updateEditHistSaveBar();
+}
+function updateEditHistSaveBar(){
+  const n = editHistDirtyRows.size;
+  const countEl = document.getElementById('editHistDirtyCount');
+  if (countEl) countEl.textContent = n ? `${n} zone${n===1?'':'s'} with unsaved changes` : 'No unsaved changes';
+  const saveBtn = document.getElementById('editHistSaveBtn');
+  const resetBtn = document.getElementById('editHistResetBtn');
+  if (saveBtn) saveBtn.disabled = n === 0;
+  if (resetBtn) resetBtn.disabled = n === 0;
+}
+function resetEditHistChanges(){
+  renderEditManagementUnitView(); // rebuilds the table from the current (last-saved) pastData, discarding any typed edits
+}
+function readEditHistRow(rowIndex){
+  const meta = editHistRowsMeta[rowIndex];
+  const val = f => document.getElementById(`ehField_${rowIndex}_${f}`).value;
+  const num = f => { const v = val(f).trim(); return v === '' ? null : (+v); };
+  const txt = f => { const v = val(f).trim(); return v === '' ? null : v; };
+  return {
+    valley: meta.valley, nom: meta.nom,
+    site: txt('site'), surface2d: num('surface2d'), surface3d: num('surface3d'),
+    veg2023: txt('veg2023'), veg2024: txt('veg2024'), veg2025: txt('veg2025'),
+    sb2023: txt('sb2023'), sb2024: txt('sb2024'), sb2025: txt('sb2025'),
+    plant2023: txt('plant2023'), plant2024: txt('plant2024'), plant2025: txt('plant2025'),
+    updated_at: new Date().toISOString(),
+  };
+}
+async function saveEditHistChanges(){
+  if (!editHistDirtyRows.size) return;
+  const statusEl = document.getElementById('editHistSaveStatus');
+  statusEl.innerHTML = 'Saving…';
+  const rows = [...editHistDirtyRows].map(readEditHistRow);
+  try {
+    const { error } = await window.sb.from('management_unit_overrides').upsert(rows, { onConflict: 'valley,nom' });
+    if (error) throw error;
+    for (const r of rows) pastDataOverrides.set(r.valley+'||'+r.nom, managementUnitOverrideRowToFields(r));
+    applyPastDataOverrides();
+    onDataUpdated();
+    statusEl.innerHTML = `<span class="ok">✓ Saved ${rows.length} zone${rows.length===1?'':'s'}.</span>`;
+    editHistDirtyRows.clear();
+    renderEditManagementUnitView();
+  } catch (err) {
+    statusEl.innerHTML = `<span class="err">Could not save: ${escapeHtml(err.message || String(err))}${!navigator.onLine ? ' (you appear to be offline)' : ''}</span>`;
+  }
+}
+function renderEditManagementUnitView(){
+  const wrapEl = document.getElementById('editHistValleySelectWrap');
+  if (wrapEl) wrapEl.innerHTML = valleyFilterSelect(editHistValleyFilter, 'setEditHistValley');
+  const container = document.getElementById('editHistTableContainer');
+  if (!container) return;
+  if (!pastDataBase){
+    container.innerHTML = '<div class="muted">Embedded historical dataset unavailable.</div>';
+    return;
+  }
+  const units = (pastData || pastDataBase)
+    .filter(u => editHistValleyFilter === 'all' || u.Valley === editHistValleyFilter)
+    .slice()
+    .sort((a,b) => (a.Valley+'||'+a.Nom).localeCompare(b.Valley+'||'+b.Nom));
+  editHistRowsMeta = units.map(u => ({ nom: u.Nom, valley: u.Valley }));
+  const rowsHtml = units.map((u,i) => `<tr data-row-index="${i}">
+      <td><b>${escapeHtml(u.Valley)}</b></td>
+      <td><b>${escapeHtml(u.Nom)}</b></td>
+      <td><input type="text" id="ehField_${i}_site" value="${escapeHtml(u.Site||'')}" style="width:110px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td><input type="number" step="any" id="ehField_${i}_surface2d" value="${u.Surface2D ?? ''}" style="width:80px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td><input type="number" step="any" id="ehField_${i}_surface3d" value="${u.Surface3D ?? ''}" style="width:80px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td><input type="text" id="ehField_${i}_veg2023" value="${escapeHtml(u.Veg2023||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td><input type="text" id="ehField_${i}_veg2024" value="${escapeHtml(u.Veg2024||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td><input type="text" id="ehField_${i}_veg2025" value="${escapeHtml(u.Veg2025||'')}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
+      <td>${categorySelectHtml(`ehField_${i}_sb2023`, u.SB2023, SB_CATEGORY_OPTIONS)}</td>
+      <td>${categorySelectHtml(`ehField_${i}_sb2024`, u.SB2024, SB_CATEGORY_OPTIONS)}</td>
+      <td>${categorySelectHtml(`ehField_${i}_sb2025`, u.SB2025, SB_CATEGORY_OPTIONS)}</td>
+      <td>${categorySelectHtml(`ehField_${i}_plant2023`, u.Plant2023, PLANT_CATEGORY_OPTIONS)}</td>
+      <td>${categorySelectHtml(`ehField_${i}_plant2024`, u.Plant2024, PLANT_CATEGORY_OPTIONS)}</td>
+      <td>${categorySelectHtml(`ehField_${i}_plant2025`, u.Plant2025, PLANT_CATEGORY_OPTIONS)}</td>
+    </tr>`).join('');
+  container.innerHTML = `<div class="table-scroll"><table class="preview"><thead><tr>
+      <th>Valley</th><th>Zone (Nom)</th><th>Site</th><th>Surface 2D</th><th>Surface 3D</th>
+      <th>Veg 2023</th><th>Veg 2024</th><th>Veg 2025</th>
+      <th>SB 2023</th><th>SB 2024</th><th>SB 2025</th>
+      <th>Plant 2023</th><th>Plant 2024</th><th>Plant 2025</th>
+    </tr></thead><tbody>${rowsHtml || '<tr><td colspan="14" class="muted">No units for this valley.</td></tr>'}</tbody></table></div>`;
+  editHistDirtyRows.clear();
+  updateEditHistSaveBar();
+  const statusEl = document.getElementById('editHistSaveStatus');
+  if (statusEl) statusEl.innerHTML = '';
 }
 
 // If the freshest contributing data point (historical or NRDS) behind a combined estimate is older
