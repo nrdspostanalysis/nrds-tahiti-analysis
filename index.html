@@ -239,7 +239,7 @@
   .geo-picker-map{height:220px;width:100%;border:1px solid var(--border);border-radius:var(--r);margin-top:2px;cursor:crosshair;}
   .map-flex-row{display:flex;gap:14px;align-items:flex-start;margin-top:8px;}
   .map-container{flex:1;min-width:0;height:560px;border:1px solid var(--border);border-radius:var(--r);}
-  .map-combined-box{flex:0 0 360px;max-height:560px;overflow-y:auto;background:#f7faf6;border:1px solid var(--border);border-radius:var(--r);padding:12px;}
+  .map-combined-box{max-height:460px;overflow-y:auto;}
 
   /* ── Home priority-zones widget ── deliberately NOT the map-flex-row/map-combined-box side-by-side
      pair above: that pair assumes a wide fixed-height map next to a fixed-360px sidebar, which starves
@@ -312,7 +312,7 @@
     .stat .num{font-size:22px;}
     .map-flex-row{flex-direction:column;}
     .map-container{flex:none;width:100%;height:380px;}
-    .map-combined-box{flex:none;width:100%;max-height:300px;}
+    .map-combined-box{max-height:300px;}
     .priority-calc-box{max-height:300px;}
     .priority-column{flex-basis:100%;}
     table.preview{font-size:11px;}
@@ -1919,8 +1919,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <span id="mapStatus" class="muted">Generate the enriched datasets first.</span>
     <div class="map-flex-row">
       <div id="mapContainer" class="map-container" style="display:none;"></div>
-      <div id="mapCombinedBox" class="hint map-combined-box" style="display:none;margin:0;"></div>
     </div>
+    <details class="collapsible" id="mapCombinedDetails" style="display:none;margin-top:8px;">
+      <summary id="mapCombinedSummary">Zone calculation details <span class="caret">▼</span></summary>
+      <div class="coll-body"><div id="mapCombinedBox" class="hint map-combined-box"></div></div>
+    </details>
     <div id="mapLegend" style="margin-top:8px;"></div>
   </div>
 
@@ -8921,26 +8924,37 @@ function renderMap(shouldFit){
   legend += `<br><span class="muted">Hover (or tap) a point/zone for details — click to pin the popup.</span>`;
   document.getElementById('mapLegend').innerHTML = legend;
 
+  const combinedDetails = document.getElementById('mapCombinedDetails');
+  const combinedSummary = document.getElementById('mapCombinedSummary');
   const combinedBox = document.getElementById('mapCombinedBox');
+  let boxLabel = null, boxHtml = '';
   if (histZoneMode === 'combined'){
-    combinedBox.style.display = '';
-    combinedBox.innerHTML = renderCombinedCalcBox(combinedBreakdown);
+    boxLabel = 'Combined current estimate — calculation details';
+    boxHtml = renderCombinedCalcBox(combinedBreakdown);
   } else if (histZoneMode === 'plantingActivity'){
-    combinedBox.style.display = '';
-    combinedBox.innerHTML = renderPlantingActivityBox(combinedBreakdown);
+    boxLabel = 'NRDS planting activity comparison — calculation details';
+    boxHtml = renderPlantingActivityBox(combinedBreakdown);
   } else if (histZoneMode === 'planting'){
-    combinedBox.style.display = '';
-    combinedBox.innerHTML = renderTypologyBox(combinedBreakdown);
+    boxLabel = 'Zone typology — calculation details';
+    boxHtml = renderTypologyBox(combinedBreakdown);
   } else if (mapLayers.has('pff')){
-    combinedBox.style.display = '';
-    combinedBox.innerHTML = renderPffColonyCalcBox(pffColoniesForBox);
+    boxLabel = 'PFF colony delimiting — calculation details';
+    boxHtml = renderPffColonyCalcBox(pffColoniesForBox);
+  }
+  // the box now sits below the map (not beside it) as a closed-by-default <details>, so toggling a
+  // layer checkbox never changes the map container's own size/position — no invalidateSize() needed
+  // for this reason anymore. It's forced back closed only on the transition from hidden→visible, so
+  // re-renders while it's already open (e.g. editing a τ input) don't collapse it out from under the user.
+  if (boxLabel){
+    if (combinedDetails.style.display === 'none') combinedDetails.open = false;
+    combinedDetails.style.display = '';
+    combinedSummary.innerHTML = `${boxLabel} <span class="caret">▼</span>`;
+    combinedBox.innerHTML = boxHtml;
   } else {
-    combinedBox.style.display = 'none';
+    combinedDetails.style.display = 'none';
+    combinedDetails.open = false;
     combinedBox.innerHTML = '';
   }
-  // the box sits beside the map (not above it) precisely so toggling it on/off only changes the
-  // map's width, never its vertical position — but Leaflet still needs to know the new width
-  leafletMap.invalidateSize();
 }
 
 /* ---------------- historical-data helpers (used by map layers & priority scoring) ---------------- */
