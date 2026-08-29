@@ -1,8 +1,12 @@
 name: Sync Metabase data
 
 on:
+  # Offset from :00/:15/:30/:45 — those exact marks are the most congested slots across all of
+  # GitHub Actions (every repo's naive "*/15" cron fires there too), so scheduled runs queued at
+  # them get delayed the most. GitHub's own docs recommend picking an off-the-mark minute to cut
+  # queueing delay; this repo was seeing 8-11h gaps instead of the intended 15min before this change.
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch: {}
 
 permissions:
