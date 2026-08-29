@@ -10229,8 +10229,10 @@ function nrdsCuttingHoursSince(unitName, cutoffDate){
 // stat cards via latestUnitStatus() itself, so the rate needs to be reachable without turning that
 // checkbox on.
 function renderHoursRateBox(){
-  return `<div style="background:#f7faf6;border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;">
-    <b>Person-hours → % (NRDS side, hours-based fallback) — editable per vegetation type:</b> since 2026-08-25 NRDS
+  return `<details class="collapsible" style="margin-bottom:10px;">
+    <summary>Person-hours → % (NRDS side, hours-based fallback) — editable per vegetation type <span class="caret">▼</span></summary>
+    <div class="coll-body" style="padding-top:0;">
+    since 2026-08-25 NRDS
     collects "Number of hours" instead of a cleaning %, so a zone with no station/zone-level % reading left to
     fall back on gets its NRDS % estimated from cumulative person-hours of CUTTING/MAINTENANCE work
     (hours × headcount, older pre-08-25 sessions counted as ${HOURS_PER_DAY_FALLBACK}h/person each)
@@ -10249,7 +10251,8 @@ function renderHoursRateBox(){
       <label class="muted">Invasive-dominant: <input type="number" id="hoursRateInvasiveInput" value="${PERSON_HOURS_PER_HA_INVASIVE}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('invasive', this.value)"> person-h/ha</label>
       <label class="muted">Default (other/unknown): <input type="number" id="hoursRateDefaultInput" value="${PERSON_HOURS_PER_HA_DEFAULT}" min="1" max="100000" step="1" style="width:80px;padding:2px 5px;" onchange="onHoursRateChange('default', this.value)"> person-h/ha</label>
     </div>
-  </div>`;
+    </div>
+  </details>`;
 }
 // Shared calculation-box renderer for both the map overlay and the past-data table toggle —
 // shows the formula plus a per-unit breakdown so the blending isn't a black box.
