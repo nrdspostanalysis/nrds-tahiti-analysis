@@ -3,9 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "sync-metabase": "node scripts/sync-metabase.mjs"
+    "sync-metabase": "node scripts/sync-metabase.mjs",
+    "import-habitat-excel": "node scripts/import-habitat-excel.mjs"
   },
   "dependencies": {
-    "wkx": "^0.5.0"
+    "wkx": "^0.5.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }
