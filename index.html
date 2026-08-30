@@ -2001,13 +2001,14 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <h2>Repeat-visit pairs — empirical τ check</h2>
     <div class="hint">Diagnostic for the recency-decay τ used in the Combined Cleaning Estimate (τ_Miconia / τ_Spathodea,
       editable in the "Combined current estimate" calc box on the map). Two independent methods, shown and pooled
-      separately (never averaged together): (1) for sessions before 2026-08-25, when the same zone has two cleaning
-      sessions logged back to back, the drop from the first visit's "end of day" % to the second visit's "arrival" %
-      — over the number of days between them — is a real, field-observed regrowth rate. (2) NRDS stopped collecting
-      that % pair on 2026-08-25 (replaced by hours worked) — for sessions since then, the next visit's hours,
-      converted to a %-of-zone-area via the same person-hours/ha rate used elsewhere in the app, stand in for how
-      much regrew back. Pairs are grouped by the zone's dominant invasive genus (same field used everywhere else).
-      This only counts and reports what the data currently supports — it does not automatically change τ.</div>
+      separately (never averaged together): (1) from logged cleaning % — NRDS's Postgres column for this field was
+      dropped entirely on 2026-08-25 (not just excluded going forward), so this method can no longer produce any
+      new pairs, only whatever was already captured before that date. (2) from hours worked — for every repeat
+      cutting/maintenance visit to the same zone, the next visit's hours (real, logged since 2026-08-25, or a
+      6h/person estimate for older sessions, marked *), converted to a %-of-zone-area via the same person-hours/ha
+      rate used elsewhere in the app, stand in for how much regrew back since the previous visit. Pairs are grouped
+      by the zone's dominant invasive genus (same field used everywhere else). This only counts and reports what the
+      data currently supports — it does not automatically change τ.</div>
     <button class="secondary" onclick="renderRepeatPairsAnalysis()">Generate repeat-pair analysis</button>
     <div id="repeatPairsContent" style="margin-top:12px;"></div>
   </div>
@@ -10841,12 +10842,23 @@ function repeatVisitPairs(){
 //   regrown = 1 − e^(−days/τ)  →  τ = −days / ln(1 − regrown)
 // v1/v2 are synthesized as 100/(100·(1−regrown)) purely so pooledTauEstimate() (identical ln(v2/v1)
 // math) works unchanged on both pair shapes.
+//
+// Sessions before 2026-08-25 have no Number_of_Hours at all (the question didn't exist yet) — rather
+// than excluding them, they use the same HOURS_PER_DAY_FALLBACK (6h/person) convention already
+// established elsewhere in the app (nrdsCuttingHoursSince(), the workforce charts, the Combined
+// Cleaning Estimate's hours fallback) for exactly this situation. Pairs built from a fallback value
+// are flagged (hoursIsFallback) and marked with a "*" in the table, same transparency convention as
+// everywhere else that estimate is used — it's a guessed constant, not a field-measured one, so a
+// fallback-based pair's implied τ is inherently less trustworthy than a real-hours one.
 function repeatVisitPairsFromHours(){
   const rows = (enriched ? enriched.mainRows : [])
     .filter(r => (r.Action === 'CUTTING' || r.Action === 'MAINTENANCE') && r.Unit_Name && r.Date &&
-      !(r.Pct_cleaned_arrival !== '' && r.Pct_cleaned_end_of_day !== '') && // only sessions repeatVisitPairs() can't already use
-      isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0)
-    .map(r => ({ ...r, hours: +r.Number_of_Hours, people: +r.Number_of_Person || 1, ts: new Date(r.Date).getTime() }));
+      !(r.Pct_cleaned_arrival !== '' && r.Pct_cleaned_end_of_day !== '')) // only sessions repeatVisitPairs() can't already use
+    .map(r => {
+      const h = +r.Number_of_Hours;
+      const hasHours = isFinite(h) && h > 0;
+      return { ...r, hours: hasHours ? h : HOURS_PER_DAY_FALLBACK, hoursIsFallback: !hasHours, people: +r.Number_of_Person || 1, ts: new Date(r.Date).getTime() };
+    });
   const byZone = new Map();
   for (const r of rows){
     const key = r.Valley + '||' + r.Unit_Name;
@@ -10876,7 +10888,7 @@ function repeatVisitPairsFromHours(){
       if (!(regrown > 0)) continue;
       const v1 = 100, v2 = 100 * (1 - regrown);
       const impliedTauDays = -days / Math.log(v2 / v1);
-      pairs.push({ unit: unitName, valley, genus, date1: r1.Date, date2: r2.Date, v1, v2, personHours2, regrownPct: regrown*100, days, impliedTauDays, rate, areaHa, method: 'hours' });
+      pairs.push({ unit: unitName, valley, genus, date1: r1.Date, date2: r2.Date, v1, v2, personHours2, regrownPct: regrown*100, days, impliedTauDays, rate, areaHa, method: 'hours', hoursIsFallback: r2.hoursIsFallback });
     }
   }
   return pairs;
@@ -10929,9 +10941,10 @@ function renderRepeatPairsAnalysis(){
   const hoursPairs = repeatVisitPairsFromHours();
   const area = document.getElementById('repeatPairsContent');
   if (!pctPairs.length && !hoursPairs.length){
-    area.innerHTML = '<p class="muted">No usable repeat-visit pairs yet — need the same zone visited twice in a row (either both with a logged cleaning %, or both cutting/maintenance sessions with hours logged). Not enough data to check τ empirically today; this will improve as more repeat visits accumulate.</p>';
+    area.innerHTML = '<p class="muted">No usable repeat-visit pairs yet — need the same zone visited twice in a row for cutting/maintenance, with a resolvable polygon area. Not enough data to check τ empirically today; this will improve as more repeat visits accumulate.</p>';
     return;
   }
+  const anyFallback = hoursPairs.some(p => p.hoursIsFallback);
   let html = `<p class="muted" style="margin-bottom:8px;"><b>Pooled τ</b> in each box comes from
     a weighted least-squares fit through the origin on <code>ln(v2/v1) = −days/τ</code> across all of that genus's pairs —
     more reliable than a plain average as data accumulates, since longer/steadier intervals count for more and one
@@ -10941,19 +10954,20 @@ function renderRepeatPairsAnalysis(){
     %-estimate vs. an hours-of-labor-derived one) and averaging them would imply a false precision.</p>`;
 
   html += renderPairMethodBox(pctPairs,
-    'From logged cleaning % (pre-2026-08-25 sessions — NRDS no longer collects this field)',
+    'From logged cleaning % (NRDS no longer collects this field at all — the underlying column was dropped 2026-08-25, so this can only ever show historical pairs already captured before that)',
     '<th>Unit</th><th>Valley</th><th>Genus</th><th>Visit 1 (end %)</th><th>Visit 2 (arrival %)</th><th>Days between</th><th>Implied τ</th>',
     p => `<tr><td>${p.unit}</td><td>${p.valley}</td><td>${REPEAT_PAIR_GENUS_LABEL[p.genus]}</td>` +
       `<td>${p.v1}% (${p.date1})</td><td>${p.v2}% (${p.date2})</td><td>${p.days.toFixed(0)}</td><td><b>${p.impliedTauDays.toFixed(0)}d</b></td></tr>`
-  ) || '<p class="muted">No usable %-based pairs (this method only ever covers sessions before 2026-08-25).</p>';
+  ) || '<p class="muted">No usable %-based pairs — NRDS\'s Postgres column for this field is gone, so this method can no longer produce any pairs at all, old or new.</p>';
 
   html += renderPairMethodBox(hoursPairs,
-    'From hours worked (2026-08-25 on — assumes a visit leaves a zone ~100% clear, and the next visit\'s hours measure how much regrew back; rate editable in "Person-hours → %" on the map)',
+    'From hours worked — every cutting/maintenance repeat visit, using real logged hours since 2026-08-25 or the ' + HOURS_PER_DAY_FALLBACK + 'h/person estimate for older sessions (marked *); assumes a visit leaves a zone ~100% clear, and the next visit\'s hours measure how much regrew back; rate editable in "Person-hours → %" on the map',
     '<th>Unit</th><th>Valley</th><th>Genus</th><th>Visit 1</th><th>Visit 2 (hours → regrown %)</th><th>Days between</th><th>Implied τ</th>',
     p => `<tr><td>${p.unit}</td><td>${p.valley}</td><td>${REPEAT_PAIR_GENUS_LABEL[p.genus]}</td>` +
-      `<td>${p.date1}</td><td>${p.regrownPct.toFixed(0)}% regrown (${p.personHours2.toFixed(1)} person-h @ ${p.rate} p-h/ha over ${p.areaHa.toFixed(2)}ha, ${p.date2})</td>` +
+      `<td>${p.date1}</td><td>${p.regrownPct.toFixed(0)}% regrown (${p.personHours2.toFixed(1)} person-h${p.hoursIsFallback?'*':''} @ ${p.rate} p-h/ha over ${p.areaHa.toFixed(2)}ha, ${p.date2})</td>` +
       `<td>${p.days.toFixed(0)}</td><td><b>${p.impliedTauDays.toFixed(0)}d</b></td></tr>`
-  ) || '<p class="muted">No usable hours-based pairs yet — need two consecutive cutting/maintenance sessions in the same zone, both logged after 2026-08-25 with hours and a resolvable polygon area.</p>';
+  ) || '<p class="muted">No usable hours-based pairs yet — need two consecutive cutting/maintenance sessions in the same zone with a resolvable polygon area.</p>';
+  if (anyFallback) html += `<p class="muted" style="font-size:11px;margin-top:4px;">* hours not recorded for this session (before NRDS added "Number of hours" on 2026-08-25) — estimated at ${HOURS_PER_DAY_FALLBACK}h/person, same convention used elsewhere in the app. A pair built from this estimate is less trustworthy than one from real logged hours.</p>`;
 
   area.innerHTML = html;
 }
