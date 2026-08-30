@@ -114,3 +114,11 @@ create policy "Allow public delete (management_unit_period_values)"
   on management_unit_period_values for delete using (true);
 
 alter publication supabase_realtime add table management_unit_period_values;
+
+-- 2026-08-30 (part 2): dynamic columns now carry a real date, not just a free-text label — this is
+-- what lets latestHistValue()/latestVegDominance() in index.html compare a dynamic column against
+-- the fixed 2023/2024/2025 columns by actual recency and use whichever is genuinely most recent per
+-- zone, feeding the map layers, the tau-check tool, combinedCleaningEstimate, and the priority-zone
+-- scores — not just display. Nullable: a column added before this migration (if any) simply won't
+-- participate in the recency comparison until edited to add a date.
+alter table management_unit_periods add column if not exists period_date date;

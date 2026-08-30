@@ -1804,7 +1804,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   <div class="card">
     <h2>Edit Management Unit — historical data (Butaud survey)</h2>
-    <div class="hint">The first columns here come from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way), or added manually below. "Dominance" normally auto-detects native vs. invasive vs. anthropic from the Veg 2023/2024/2025 text (a heuristic word-parse) — set it explicitly here to correct a wrong call without having to reword the vegetation text. Use "+ Add column" to add extra SB/Plantation/Vegetation sessions for later years — these extra columns are saved and shared like everything else, but (for now) are reference-only and don't feed the map/priority-score analysis, which stays tied to the 3 Butaud periods above. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here; deleting a row only removes its historical data — a drawn polygon for that zone, if any, is kept.</div>
+    <div class="hint">The first columns here come from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025). One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way), or added manually below. "Dominance" normally auto-detects native vs. invasive vs. anthropic from the vegetation text (a heuristic word-parse) — set it explicitly here to correct a wrong call without having to reword the vegetation text. Use "+ Add column" to add an extra SB/Plantation/Vegetation session for a later date (2026, 2027, ...) — pick the real date of that session, not just a year: for every zone, whichever dated entry is genuinely the most recent (a fixed 2023/2024/2025 column or any dynamic column) becomes that zone's official value everywhere — the map layers, the τ-check tool, the combined historical+NRDS estimate, and the priority-zone rankings all pick it up automatically, per zone. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here; deleting a row only removes its historical data — a drawn polygon for that zone, if any, is kept.</div>
     <div class="row" style="margin-top:10px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap;">
       <span id="editHistValleySelectWrap"></span>
       <button class="secondary" id="editHistResetBtn" onclick="resetEditHistChanges()" disabled>Reset changes</button>
@@ -1818,7 +1818,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
           <option value="plant">Plantation</option>
           <option value="veg">Vegetation (free text)</option>
         </select>
-        <input id="ehNewColLabel" type="text" placeholder="e.g. 2026" style="font-size:12px;padding:2px 4px;width:90px;">
+        <input id="ehNewColDate" type="date" title="Real date of this SB/Plantation/Vegetation session — used to decide, per zone, whether this or an existing column is the most recent." style="font-size:12px;padding:2px 4px;">
         <button class="secondary" onclick="addDynamicColumn()">+ Add column</button>
       </span>
       <span class="row" style="gap:4px;align-items:center;">
@@ -2201,6 +2201,30 @@ function applyPastDataOverrides(){
     if (baseKeys.has(ov.Valley+'||'+ov.Nom)) continue;
     if (ov.Deleted) continue;
     merged.push({ ...EMPTY_HIST_FIELDS, ...ov });
+  }
+  // A zone whose *only* historical record is a dynamic-column value (no Butaud baseline, no
+  // management_unit_overrides row at all — e.g. its override row was later soft-deleted, or one was
+  // never created) still needs a pastData row of its own, same reasoning as the override-only case
+  // just above, so the _dynamic attachment loop below has something to attach to.
+  const knownKeys = new Set(merged.map(u => u.Valley+'||'+u.Nom));
+  for (const [key, val] of dynamicPeriodValues){
+    if (val == null || val === '') continue;
+    const [, valley, nom] = key.split('||'); // key = `${period_id}||${valley}||${nom}`
+    const k2 = valley+'||'+nom;
+    if (knownKeys.has(k2)) continue;
+    knownKeys.add(k2);
+    merged.push({ ...EMPTY_HIST_FIELDS, Nom: nom, Valley: valley });
+  }
+  // Attach each zone's dynamic-column entries (own real date, from management_unit_periods.period_date)
+  // so latestHistValue()/latestVegDominance() can compare them against the fixed 2023/2024/2025
+  // columns by actual date and use whichever is genuinely most recent — see historicalTimeline-style
+  // logic inside those two functions. A column added before dates were required (period_date null)
+  // is excluded here — still visible/editable in the table, just not part of the recency comparison.
+  for (const u of merged){
+    u._dynamic = dynamicPeriods
+      .filter(p => p.period_date)
+      .map(p => ({ type: p.type, date: new Date(p.period_date+'T00:00:00'), periodLabel: p.label, periodKey: 'dyn:'+p.id, raw: dynamicPeriodValues.get(p.id+'||'+u.Valley+'||'+u.Nom) || null }))
+      .filter(d => d.raw != null && d.raw !== '');
   }
   pastData = base.length || merged.length ? merged : null;
 }
@@ -4456,7 +4480,7 @@ function onIbsZoneChange(){
   const lu   = pastUnitLookupMap();
   const hu   = lu.get(valley + '||' + zone);
   const topo = zoneTypology(hu);
-  const vegTxt  = topo.vd ? escapeHtml(topo.vd.raw) + ' (' + escapeHtml(HIST_PERIOD_LABEL[topo.vd.period]||topo.vd.period) + ')' : 'no vegetation data';
+  const vegTxt  = topo.vd ? escapeHtml(topo.vd.raw) + ' (' + escapeHtml(topo.vd.periodLabel||topo.vd.period) + ')' : 'no vegetation data';
   const plantTxt = topo.hv ? escapeHtml(topo.hv.raw) + ' / ' + topo.hv.pct + '%' : 'no plantation data';
   badge.innerHTML = `<span style="background:${topo.color};color:#fff;padding:2px 9px;border-radius:12px;font-size:12px;font-weight:700;margin-right:6px;">${escapeHtml(topo.type)}</span><span style="font-size:12.5px;">${escapeHtml(topo.label)}</span><span class="muted" style="font-size:11.5px;margin-left:8px;">| Veg: ${vegTxt} | Plant: ${plantTxt}</span>`;
 }
@@ -5660,6 +5684,8 @@ async function fetchDynamicPeriods(){
     dynamicPeriods = cached ? cached.payload : [];
     if (!cached) console.warn('Management unit dynamic periods: offline, no cache');
   }
+  applyPastDataOverrides();
+  if (dataLoaded.ref && dataLoaded.habitat) onDataUpdated();
   refreshEditHistViewIfOpen();
 }
 function subscribeDynamicPeriods(){
@@ -5681,6 +5707,8 @@ async function fetchDynamicPeriodValues(){
     if (cached) { for (const r of cached.payload) dynamicPeriodValues.set(r.period_id+'||'+r.valley+'||'+r.nom, r.value); }
     else console.warn('Management unit dynamic period values: offline, no cache');
   }
+  applyPastDataOverrides();
+  if (dataLoaded.ref && dataLoaded.habitat) onDataUpdated();
   refreshEditHistViewIfOpen();
 }
 function subscribeDynamicPeriodValues(){
@@ -8529,7 +8557,7 @@ function renderMap(shouldFit){
           : `${res.st.pct.toFixed(0)}% (${res.stationsWithData}/${res.stationsTotal} stations, ${(res.coverage*100).toFixed(0)}% coverage, weight ${res.wNrdsPct.toFixed(0)}%)`;
         const actionSummary = zoneCleaningActionSummary(u['Nom']);
         html += `<br><b>Combined current estimate: ${res.estimate.toFixed(0)}%</b>` +
-          (res.hv ? `<br>historical ${HIST_PERIOD_LABEL[res.hv.period]}: ${res.hv.raw} (${res.hv.pct}%, weight ${res.wHistPct.toFixed(0)}%)` : '<br>historical: no data') +
+          (res.hv ? `<br>historical ${res.hv.periodLabel}: ${res.hv.raw} (${res.hv.pct}%, weight ${res.wHistPct.toFixed(0)}%)` : '<br>historical: no data') +
           `<br>NRDS: ${nrdsTxt}` +
           `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
         combinedBreakdown.push({ unit: u['Nom'], valley: u['Vallee'], res });
@@ -8566,8 +8594,8 @@ function renderMap(shouldFit){
       fillOpacity = 0.75;
       borderColor = upgraded ? '#f5a623' : '#2e5e2c';
       borderWeight = upgraded ? 3 : 1.5;
-      const vegTxt = topo.vd ? `${topo.vd.raw} (${HIST_PERIOD_LABEL[topo.vd.period]})` : 'no vegetation data';
-      const plantTxt = hv ? `${hv.raw} / ${hv.pct}% (${HIST_PERIOD_LABEL[hv.period]})` : 'no historical survey';
+      const vegTxt = topo.vd ? `${topo.vd.raw} (${topo.vd.periodLabel})` : 'no vegetation data';
+      const plantTxt = hv ? `${hv.raw} / ${hv.pct}% (${hv.periodLabel})` : 'no historical survey';
       html += `<br><b>Projected type: ${projTopo.label}</b>${upgraded ? ` <i style="color:#d4870a;">(&#8593; from ${topo.type})</i>` : ''}`;
       html += `<br>Vegetation: ${vegTxt}`;
       html += `<br>Historical plantings: ${plantTxt}`;
@@ -8587,8 +8615,8 @@ function renderMap(shouldFit){
       const topo = zoneTypology(hu);
       fillColor = topo.color;
       fillOpacity = 0.75;
-      const vegTxt = topo.vd ? `${topo.vd.raw} (${HIST_PERIOD_LABEL[topo.vd.period]})` : 'no vegetation data';
-      const plantTxt = topo.hv ? `${topo.hv.raw} / ${topo.hv.pct}% (${HIST_PERIOD_LABEL[topo.hv.period]})` : 'no planting data';
+      const vegTxt = topo.vd ? `${topo.vd.raw} (${topo.vd.periodLabel})` : 'no vegetation data';
+      const plantTxt = topo.hv ? `${topo.hv.raw} / ${topo.hv.pct}% (${topo.hv.periodLabel})` : 'no planting data';
       html += `<br><b>Type: ${topo.label}</b>`;
       html += `<br>Vegetation: ${vegTxt}`;
       html += `<br>Plantations: ${plantTxt}`;
@@ -8599,7 +8627,7 @@ function renderMap(shouldFit){
       const actionSummary = zoneCleaningActionSummary(u['Nom']);
       fillColor = hv ? pctColor(hv.pct) : '#d8d8d8';
       fillOpacity = 0.75;
-      html += hv ? `<br>Understory management (historical, ${HIST_PERIOD_LABEL[hv.period]}): <b>${hv.raw}</b> (${hv.pct}%)` : '<br><i>no historical data for this unit</i>';
+      html += hv ? `<br>Understory management (historical, ${hv.periodLabel}): <b>${hv.raw}</b> (${hv.pct}%)` : '<br><i>no historical data for this unit</i>';
       html += `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
     } else if (mapLayers.has('cleaning')){
       const st = statusMap.get(u['Nom']);
@@ -9094,18 +9122,27 @@ function vegNativeDominance(vegStr){
 // vegNativeDominance()'s genus-name parsing land on the right answer — it's a heuristic parse of
 // free text and can misfire (wrong word order, an unlisted genus, a typo). Still shows the actual
 // vegetation text for context; only the dominance verdict itself is overridden.
+// Combines the 3 fixed Veg columns (each with a fixed real date, HIST_PERIOD_DATE) with any dynamic
+// 'veg' column that has a value for this zone (hu._dynamic, attached by applyPastDataOverrides()),
+// sorted most-recent-first by real date — so a later dynamic entry naturally wins over an older fixed
+// one, and vice versa, per zone.
+function vegTimeline(hu){
+  const entries = ['2025','2024','2023'].map(yr => ({ date: HIST_PERIOD_DATE[yr], periodLabel: HIST_PERIOD_LABEL[yr], periodKey: yr, raw: hu['Veg'+yr] }));
+  for (const d of (hu._dynamic||[])) if (d.type === 'veg') entries.push(d);
+  entries.sort((a,b) => b.date - a.date);
+  return entries;
+}
 function latestVegDominance(hu){
   if (!hu) return null;
+  const entries = vegTimeline(hu);
   if (hu.DominanceOverride){
-    for (const yr of ['2025','2024','2023']){
-      const veg = hu['Veg'+yr];
-      if (veg) return { dominance: hu.DominanceOverride, period: yr, raw: veg, overridden: true };
+    for (const e of entries){
+      if (e.raw) return { dominance: hu.DominanceOverride, period: e.periodKey, periodLabel: e.periodLabel, raw: e.raw, overridden: true };
     }
-    return { dominance: hu.DominanceOverride, period: 'override', raw: '(manually set — no vegetation text on record)', overridden: true };
+    return { dominance: hu.DominanceOverride, period: 'override', periodLabel: 'override', raw: '(manually set — no vegetation text on record)', overridden: true };
   }
-  for (const yr of ['2025','2024','2023']){
-    const veg = hu['Veg'+yr];
-    if (veg){ return { dominance: vegNativeDominance(veg), period: yr, raw: veg }; }
+  for (const e of entries){
+    if (e.raw) return { dominance: vegNativeDominance(e.raw), period: e.periodKey, periodLabel: e.periodLabel, raw: e.raw };
   }
   return null;
 }
@@ -9141,13 +9178,21 @@ function zoneTypology(hu){
   return { type:'X', ...TYPOLOGY_DEF['X'], vd, hv };
 }
 
-// for the map's per-zone historical overlay: most recent snapshot with a usable (non-"sans objet") value
+// For the map's per-zone historical overlay, the tau-check tool, combinedCleaningEstimate(), and the
+// priority-zone rankings: the most recent usable (non-"sans objet"/unrecognized) snapshot for this
+// zone and metric (SB or Plant), comparing the 3 fixed columns and any dynamic column of the same
+// type by real date (see hu._dynamic, attached by applyPastDataOverrides()) — a later dynamic column
+// (e.g. a 2026 SB session) becomes the official value the moment it has real data, per zone.
 function latestHistValue(hu, weights, fieldPrefix){
   if (!hu) return null;
-  for (const suffix of ['2025','2024','2023']){
-    const cat = normalizeCategory(hu[fieldPrefix+suffix]);
+  const dynType = fieldPrefix === 'SB' ? 'sb' : fieldPrefix === 'Plant' ? 'plant' : null;
+  const entries = ['2025','2024','2023'].map(yr => ({ date: HIST_PERIOD_DATE[yr], periodLabel: HIST_PERIOD_LABEL[yr], periodKey: yr, raw: hu[fieldPrefix+yr] }));
+  if (dynType) for (const d of (hu._dynamic||[])) if (d.type === dynType) entries.push(d);
+  entries.sort((a,b) => b.date - a.date);
+  for (const e of entries){
+    const cat = normalizeCategory(e.raw);
     if (cat && cat in weights && weights[cat] != null){
-      return { pct: weights[cat], period: suffix, raw: hu[fieldPrefix+suffix] };
+      return { pct: weights[cat], period: e.periodKey, periodLabel: e.periodLabel, date: e.date, raw: e.raw };
     }
   }
   return null;
@@ -9193,7 +9238,7 @@ function combinedCleaningEstimate(hu, unitName, fallbackSt){
   const tauInfo = zoneTauDays(hu);
   const tau = tauInfo.days;
   const hv = latestHistValue(hu, SB_WEIGHTS, 'SB');
-  const daysHist = hv ? daysBetween(today, HIST_PERIOD_DATE[hv.period]) : null;
+  const daysHist = hv ? daysBetween(today, hv.date) : null;
 
   const agg = zoneNrdsAggregate(unitName, tau);
   let nrdsPct = agg.pct, daysNrds = agg.days, coverage = agg.coverage, usedFallback = false;
@@ -9400,19 +9445,29 @@ function refreshEditHistViewIfOpen(){
   renderEditManagementUnitView();
 }
 const DYNAMIC_PERIOD_TYPE_LABEL = { veg:'Veg', sb:'SB', plant:'Plant' };
+// Matches the "Aug 2023" / "Dec 2025" style of HIST_PERIOD_LABEL, so a dynamic column's header reads
+// consistently with the fixed ones.
+function formatPeriodDateLabel(dateStr){
+  return new Date(dateStr+'T00:00:00').toLocaleDateString('en-US', { month:'short', year:'numeric' });
+}
 // "+ Add column": inserts a new management_unit_periods row (a brand-new SB/Plantation/Vegetation
-// session, e.g. a 2026 column) — appears as an extra column for every zone, initially blank.
+// session at some real date, e.g. a 2026 session) — appears as an extra column for every zone,
+// initially blank. The date (not just the type) is required: it's what lets latestHistValue()/
+// latestVegDominance() below decide, per zone, whether this column or an existing one is more recent.
 async function addDynamicColumn(){
   if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
   const type = document.getElementById('ehNewColType').value;
-  const label = document.getElementById('ehNewColLabel').value.trim();
-  if (!label) { alert('Enter a label for the new column (e.g. a year).'); return; }
+  const period_date = document.getElementById('ehNewColDate').value;
+  if (!period_date) { alert('Choose the real date of this session — it decides whether this column or an existing one counts as "most recent" for a zone.'); return; }
+  const label = formatPeriodDateLabel(period_date);
   try {
     const sort_order = dynamicPeriods.length ? Math.max(...dynamicPeriods.map(p => p.sort_order)) + 1 : 0;
-    const { data, error } = await window.sb.from('management_unit_periods').insert({ type, label, sort_order }).select();
+    const { data, error } = await window.sb.from('management_unit_periods').insert({ type, label, period_date, sort_order }).select();
     if (error) throw error;
     dynamicPeriods = dynamicPeriods.concat(data);
-    document.getElementById('ehNewColLabel').value = '';
+    document.getElementById('ehNewColDate').value = '';
+    applyPastDataOverrides();
+    onDataUpdated();
     editHistDirtyRows.clear();
     renderEditManagementUnitView();
   } catch(err) {
@@ -9431,6 +9486,8 @@ async function deleteDynamicColumn(periodId){
     if (error) throw error;
     dynamicPeriods = dynamicPeriods.filter(x => x.id !== periodId);
     for (const k of [...dynamicPeriodValues.keys()]) if (k.startsWith(periodId+'||')) dynamicPeriodValues.delete(k);
+    applyPastDataOverrides();
+    onDataUpdated();
     editHistDirtyRows.clear();
     renderEditManagementUnitView();
   } catch(err) {
@@ -10359,7 +10416,7 @@ function renderZonePriority(valley, rows){
       const hx = mL + xScale(d.res.hv.pct), sz = 5;
       const hPopupIdx = chartPopupData.push(`<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(d.unit)} (${escapeHtml(d.valley)})</div>
         <div><b>Historical baseline:</b> ${escapeHtml(d.res.hv.raw)} (${d.res.hv.pct}%)</div>
-        <div><b>Survey period:</b> ${escapeHtml(HIST_PERIOD_LABEL[d.res.hv.period])}</div>`) - 1;
+        <div><b>Survey period:</b> ${escapeHtml(d.res.hv.periodLabel)}</div>`) - 1;
       svg += `<g onclick="pinPopup(event, ${hPopupIdx})" style="cursor:pointer;">${svgEl('title',{},`Historical baseline — ${d.unit}\nClick for full details`)}` +
         svgEl('rect',{x:hx-sz,y:midY-sz,width:sz*2,height:sz*2,fill:'white',stroke:'#7e57c2','stroke-width':2,
           transform:`rotate(45 ${hx} ${midY})`}) + `</g>`;
@@ -10371,7 +10428,7 @@ function renderZonePriority(valley, rows){
       : (d.res.stationsTotal ? `${d.res.stationsWithData}/${d.res.stationsTotal} stations (${Math.round((d.res.coverage||0)*100)}% coverage)` : 'no station data');
     const ePopupIdx = chartPopupData.push(`<div style="font-weight:600;margin-bottom:4px;">${escapeHtml(d.unit)} (${escapeHtml(d.valley)})</div>
       <div><b>${includeHist ? 'Combined estimate' : 'NRDS estimate'}:</b> ${d.res.estimate.toFixed(0)}%</div>
-      ${includeHist ? (d.res.hv ? `<div><b>Historical:</b> ${escapeHtml(d.res.hv.raw)} (${d.res.hv.pct}%, ${escapeHtml(HIST_PERIOD_LABEL[d.res.hv.period])}), weight ${d.res.wHistPct.toFixed(0)}%</div>` : `<div><b>Historical:</b> no data</div>`) : ''}
+      ${includeHist ? (d.res.hv ? `<div><b>Historical:</b> ${escapeHtml(d.res.hv.raw)} (${d.res.hv.pct}%, ${escapeHtml(d.res.hv.periodLabel)}), weight ${d.res.wHistPct.toFixed(0)}%</div>` : `<div><b>Historical:</b> no data</div>`) : ''}
       <div><b>NRDS:</b> ${d.res.st ? d.res.st.pct.toFixed(0)+'%' : 'no data'} — ${escapeHtml(coverTxt)}${includeHist ? `, weight ${d.res.wNrdsPct ? d.res.wNrdsPct.toFixed(0) : 0}%` : ''}</div>
       ${stale ? `<div style="margin-top:4px;color:#b8860b;">⚠ freshest contributing data is ${d.lastDays.toFixed(0)} days old — treat this % as outdated.</div>` : ''}`) - 1;
     svg += `<g onclick="pinPopup(event, ${ePopupIdx})" style="cursor:pointer;">${svgEl('title',{},`${d.unit} (${d.valley})\nClick for full details`)}` + svgEl('circle',{cx,cy:midY,r:7,fill:pctColor(d.res.estimate),stroke:'#23291f','stroke-width':1.5}) + `</g>`;
@@ -10521,7 +10578,7 @@ function renderCombinedCalcBox(breakdown){
     for (const b of breakdown){
       const r = b.res;
       const tauTxt = r.tau != null ? `${r.tau}d (${r.tauLabel})` : '—';
-      const histTxt = r.hv ? `${r.hv.raw} (${r.hv.pct}%, ${HIST_PERIOD_LABEL[r.hv.period]}, ${r.daysHist.toFixed(0)}d ago)` : '—';
+      const histTxt = r.hv ? `${r.hv.raw} (${r.hv.pct}%, ${r.hv.periodLabel}, ${r.daysHist.toFixed(0)}d ago)` : '—';
       const nrdsTxt = !r.st ? '—'
         : r.usedHoursFallback ? `${r.st.pct.toFixed(0)}% (from ${r.hoursInfo.totalPersonHours.toFixed(0)} person-hours @ ${r.hoursRateUsed} p-h/ha over ${r.hoursInfo.actionsCount} session(s), ${r.daysNrds.toFixed(0)}d ago)`
         : r.usedFallback ? `${r.st.pct}% (single action, no station resolved, ${r.daysNrds.toFixed(0)}d ago)`
