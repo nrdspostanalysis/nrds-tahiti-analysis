@@ -1804,12 +1804,28 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   <div class="card">
     <h2>Edit Management Unit — historical data (Butaud survey)</h2>
-    <div class="hint">Every field here comes from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way). "Dominance" normally auto-detects native vs. invasive vs. anthropic from the Veg 2023/2024/2025 text (a heuristic word-parse) — set it explicitly here to correct a wrong call without having to reword the vegetation text. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here.</div>
+    <div class="hint">The first columns here come from the embedded Butaud historical survey (August 2023 / August 2024 / December 2025) — the same data behind the historical map layers, the τ-check tool, and the priority-zone scores. One row per management unit, including any new zone drawn via "Add Elements" (shown here with blank fields — fill them in and Save the same way), or added manually below. "Dominance" normally auto-detects native vs. invasive vs. anthropic from the Veg 2023/2024/2025 text (a heuristic word-parse) — set it explicitly here to correct a wrong call without having to reword the vegetation text. Use "+ Add column" to add extra SB/Plantation/Vegetation sessions for later years — these extra columns are saved and shared like everything else, but (for now) are reference-only and don't feed the map/priority-score analysis, which stays tied to the 3 Butaud periods above. Edits are shared with everyone using the app, not just this device. "Zone (Nom)" and "Valley" are the lookup keys used everywhere else and can't be renamed here; deleting a row only removes its historical data — a drawn polygon for that zone, if any, is kept.</div>
     <div class="row" style="margin-top:10px;margin-bottom:10px;gap:10px;align-items:center;flex-wrap:wrap;">
       <span id="editHistValleySelectWrap"></span>
       <button class="secondary" id="editHistResetBtn" onclick="resetEditHistChanges()" disabled>Reset changes</button>
       <button id="editHistSaveBtn" onclick="saveEditHistChanges()" disabled>Save changes</button>
       <span id="editHistDirtyCount" class="muted">No unsaved changes</span>
+    </div>
+    <div class="row" style="margin-bottom:10px;gap:16px;align-items:center;flex-wrap:wrap;">
+      <span class="row" style="gap:4px;align-items:center;">
+        <select id="ehNewColType" style="font-size:12px;padding:2px 4px;">
+          <option value="sb">SB (understory)</option>
+          <option value="plant">Plantation</option>
+          <option value="veg">Vegetation (free text)</option>
+        </select>
+        <input id="ehNewColLabel" type="text" placeholder="e.g. 2026" style="font-size:12px;padding:2px 4px;width:90px;">
+        <button class="secondary" onclick="addDynamicColumn()">+ Add column</button>
+      </span>
+      <span class="row" style="gap:4px;align-items:center;">
+        <span id="ehNewRowValleyWrap"></span>
+        <input id="ehNewRowNom" type="text" placeholder="new zone code" style="font-size:12px;padding:2px 4px;width:110px;">
+        <button class="secondary" onclick="addZoneRow()">+ Add row</button>
+      </span>
     </div>
     <div id="editHistSaveStatus" style="margin-bottom:8px;"></div>
     <div id="editHistTableContainer"></div>
@@ -2154,20 +2170,36 @@ let pastDataBase = null;
 let pastDataOverrides = new Map(); // 'Valley||Nom' -> partial override fields (same keys as pastData rows)
 const EMPTY_HIST_FIELDS = { Site:null, Surface2D:null, Surface3D:null, Veg2023:null, Veg2024:null, Veg2025:null,
   SB2023:null, SB2024:null, SB2025:null, Plant2023:null, Plant2024:null, Plant2025:null, DominanceOverride:null };
+// Dynamic (Marco-addable/removable) extra "Edit Management Unit" columns, beyond the fixed
+// Veg/SB/Plant 2023/2024/2025 triplet above — see supabase_schema_management_unit_overrides.sql's
+// 2026-08-30 migration. Long/tidy form so adding a column never needs another SQL migration.
+// Purely additive: not read by any historical-analysis code (combinedCleaningEstimate,
+// latestHistValue, the map's historical layers, zoneTypology/dominance, the τ-check tool, priority
+// ranking) — that math has recency/τ assumptions tied to the 3 named Butaud periods specifically.
+let dynamicPeriods = []; // [{id, type:'veg'|'sb'|'plant', label, sort_order}, ...]
+let dynamicPeriodValues = new Map(); // `${period_id}||${valley}||${nom}` -> value string
 function applyPastDataOverrides(){
   const base = pastDataBase || [];
-  const merged = base.map(u => {
+  // ov.Deleted (a soft-delete "Delete row" in Edit Management Unit — see deleteZoneRow()) drops the
+  // zone from pastData entirely. If a live polygon for it still exists in tables.managementUnit,
+  // allKnownManagementUnits() will still surface the zone (with blank historical fields, same as any
+  // other undocumented live zone) — deleting a row here only ever removes historical data, never a
+  // drawn polygon, by design.
+  const merged = [];
+  for (const u of base){
     const ov = pastDataOverrides.get(u.Valley+'||'+u.Nom);
-    return ov ? { ...u, ...ov } : u;
-  });
+    if (ov && ov.Deleted) continue;
+    merged.push(ov ? { ...u, ...ov } : u);
+  }
   // A zone with a saved override but no Butaud baseline row (e.g. a brand-new management unit drawn
-  // via "Add Elements" and then filled in via "Edit Management Unit") still needs a full pastData
-  // row of its own — otherwise its saved historical data would sit in pastDataOverrides but never
-  // reach pastUnitLookupMap()/zonePriorityData()/the map's historical layers/the τ-check tool, all of
-  // which read pastData, not pastDataOverrides directly.
+  // via "Add Elements", or added manually via "+ Add row", then filled in via "Edit Management
+  // Unit") still needs a full pastData row of its own — otherwise its saved historical data would
+  // sit in pastDataOverrides but never reach pastUnitLookupMap()/zonePriorityData()/the map's
+  // historical layers/the τ-check tool, all of which read pastData, not pastDataOverrides directly.
   const baseKeys = new Set(base.map(u => u.Valley+'||'+u.Nom));
   for (const ov of pastDataOverrides.values()){
     if (baseKeys.has(ov.Valley+'||'+ov.Nom)) continue;
+    if (ov.Deleted) continue;
     merged.push({ ...EMPTY_HIST_FIELDS, ...ov });
   }
   pastData = base.length || merged.length ? merged : null;
@@ -5610,7 +5642,52 @@ function managementUnitOverrideRowToFields(r){
     SB2023: r.sb2023, SB2024: r.sb2024, SB2025: r.sb2025,
     Plant2023: r.plant2023, Plant2024: r.plant2024, Plant2025: r.plant2025,
     DominanceOverride: r.dominance_override,
+    Deleted: !!r.deleted,
   };
+}
+
+// Dynamic (Marco-addable/removable) extra columns — see the 2026-08-30 migration in
+// supabase_schema_management_unit_overrides.sql. Same fetch/cache/realtime pattern as
+// fetchManagementUnitOverrides() above.
+async function fetchDynamicPeriods(){
+  try {
+    const { data, error } = await window.sb.from('management_unit_periods').select('*').order('sort_order');
+    if (error) throw new Error(error.message);
+    dynamicPeriods = data;
+    _dbSave('managementUnitPeriods', data);
+  } catch(e) {
+    var cached = _dbLoad('managementUnitPeriods');
+    dynamicPeriods = cached ? cached.payload : [];
+    if (!cached) console.warn('Management unit dynamic periods: offline, no cache');
+  }
+  refreshEditHistViewIfOpen();
+}
+function subscribeDynamicPeriods(){
+  fetchDynamicPeriods();
+  window.sb.channel('management_unit_periods_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'management_unit_periods' }, () => fetchDynamicPeriods())
+    .subscribe();
+}
+async function fetchDynamicPeriodValues(){
+  try {
+    const { data, error } = await window.sb.from('management_unit_period_values').select('*');
+    if (error) throw new Error(error.message);
+    dynamicPeriodValues = new Map();
+    for (const r of data) dynamicPeriodValues.set(r.period_id+'||'+r.valley+'||'+r.nom, r.value);
+    _dbSave('managementUnitPeriodValues', data);
+  } catch(e) {
+    var cached = _dbLoad('managementUnitPeriodValues');
+    dynamicPeriodValues = new Map();
+    if (cached) { for (const r of cached.payload) dynamicPeriodValues.set(r.period_id+'||'+r.valley+'||'+r.nom, r.value); }
+    else console.warn('Management unit dynamic period values: offline, no cache');
+  }
+  refreshEditHistViewIfOpen();
+}
+function subscribeDynamicPeriodValues(){
+  fetchDynamicPeriodValues();
+  window.sb.channel('management_unit_period_values_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'management_unit_period_values' }, () => fetchDynamicPeriodValues())
+    .subscribe();
 }
 
 /* ---------------- home / submit view switch ---------------- */
@@ -5871,6 +5948,8 @@ whenSupabaseReady(() => {
   subscribeBirdSurveys();
   subscribeBirdObservations();
   subscribeManagementUnitOverrides();
+  subscribeDynamicPeriods();
+  subscribeDynamicPeriodValues();
   syncOfflineQueue(); // picks up anything queued in a previous session, if we're online now
 });
 loadReferenceData();
@@ -9259,14 +9338,32 @@ function readEditHistRow(rowIndex){
     updated_at: new Date().toISOString(),
   };
 }
+// Dynamic-column cells for one row: one management_unit_period_values row per known period,
+// regardless of whether that specific cell was the one edited — same "always send the whole row"
+// approach as readEditHistRow() above, just one level deeper (per period instead of per field).
+function readEditHistDynamicValues(rowIndex){
+  const meta = editHistRowsMeta[rowIndex];
+  return dynamicPeriods.map(p => {
+    const el = document.getElementById(`ehDynField_${rowIndex}_${p.id}`);
+    const v = el ? el.value.trim() : '';
+    return { period_id: p.id, valley: meta.valley, nom: meta.nom, value: v === '' ? null : v, updated_at: new Date().toISOString() };
+  });
+}
 async function saveEditHistChanges(){
   if (!editHistDirtyRows.size) return;
   const statusEl = document.getElementById('editHistSaveStatus');
   statusEl.innerHTML = 'Saving…';
-  const rows = [...editHistDirtyRows].map(readEditHistRow);
+  const rowIndices = [...editHistDirtyRows];
+  const rows = rowIndices.map(readEditHistRow);
+  const dynRows = rowIndices.flatMap(readEditHistDynamicValues);
   try {
     const { error } = await window.sb.from('management_unit_overrides').upsert(rows, { onConflict: 'valley,nom' });
     if (error) throw error;
+    if (dynRows.length){
+      const { error: e2 } = await window.sb.from('management_unit_period_values').upsert(dynRows, { onConflict: 'period_id,valley,nom' });
+      if (e2) throw e2;
+      for (const r of dynRows) dynamicPeriodValues.set(r.period_id+'||'+r.valley+'||'+r.nom, r.value);
+    }
     for (const r of rows) pastDataOverrides.set(r.valley+'||'+r.nom, managementUnitOverrideRowToFields(r));
     applyPastDataOverrides();
     onDataUpdated();
@@ -9302,9 +9399,99 @@ function refreshEditHistViewIfOpen(){
   if (editHistDirtyRows.size) return;
   renderEditManagementUnitView();
 }
+const DYNAMIC_PERIOD_TYPE_LABEL = { veg:'Veg', sb:'SB', plant:'Plant' };
+// "+ Add column": inserts a new management_unit_periods row (a brand-new SB/Plantation/Vegetation
+// session, e.g. a 2026 column) — appears as an extra column for every zone, initially blank.
+async function addDynamicColumn(){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
+  const type = document.getElementById('ehNewColType').value;
+  const label = document.getElementById('ehNewColLabel').value.trim();
+  if (!label) { alert('Enter a label for the new column (e.g. a year).'); return; }
+  try {
+    const sort_order = dynamicPeriods.length ? Math.max(...dynamicPeriods.map(p => p.sort_order)) + 1 : 0;
+    const { data, error } = await window.sb.from('management_unit_periods').insert({ type, label, sort_order }).select();
+    if (error) throw error;
+    dynamicPeriods = dynamicPeriods.concat(data);
+    document.getElementById('ehNewColLabel').value = '';
+    editHistDirtyRows.clear();
+    renderEditManagementUnitView();
+  } catch(err) {
+    alert('Could not add column: ' + (err.message || err));
+  }
+}
+// Column-header "🗑": permanently deletes a dynamic column's data for every zone (management_unit_period_values
+// cascades on the FK). Never touches the fixed 2023/2024/2025 columns — those aren't dynamic periods.
+async function deleteDynamicColumn(periodId){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
+  const p = dynamicPeriods.find(x => x.id === periodId);
+  const label = p ? `${DYNAMIC_PERIOD_TYPE_LABEL[p.type]} ${p.label}` : 'this column';
+  if (!confirm(`Delete column "${label}"? This permanently removes its data for every zone, for everyone.`)) return;
+  try {
+    const { error } = await window.sb.from('management_unit_periods').delete().eq('id', periodId);
+    if (error) throw error;
+    dynamicPeriods = dynamicPeriods.filter(x => x.id !== periodId);
+    for (const k of [...dynamicPeriodValues.keys()]) if (k.startsWith(periodId+'||')) dynamicPeriodValues.delete(k);
+    editHistDirtyRows.clear();
+    renderEditManagementUnitView();
+  } catch(err) {
+    alert('Could not delete column: ' + (err.message || err));
+  }
+}
+// "+ Add row": a new zone with no historical data yet — either a stand-in for a polygon not yet
+// drawn, or a zone that will never have one. Immediately upserted (not just marked dirty) so it
+// isn't lost if the user navigates away before hitting Save.
+async function addZoneRow(){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
+  const valley = document.getElementById('ehNewRowValley').value;
+  const nom = document.getElementById('ehNewRowNom').value.trim();
+  if (!nom) { alert('Enter a zone code (Nom) for the new row.'); return; }
+  const key = valley+'||'+nom;
+  if (allKnownManagementUnits().some(u => u.Valley+'||'+u.Nom === key)) { alert(`A zone "${nom}" already exists in ${valley}.`); return; }
+  try {
+    const row = { valley, nom, deleted: false, updated_at: new Date().toISOString() };
+    const { error } = await window.sb.from('management_unit_overrides').upsert(row, { onConflict: 'valley,nom' });
+    if (error) throw error;
+    pastDataOverrides.set(key, managementUnitOverrideRowToFields(row));
+    applyPastDataOverrides();
+    document.getElementById('ehNewRowNom').value = '';
+    editHistValleyFilter = valley; // jump the filter so the new row is immediately visible
+    onDataUpdated();
+    editHistDirtyRows.clear();
+    renderEditManagementUnitView();
+  } catch(err) {
+    alert('Could not add row: ' + (err.message || err));
+  }
+}
+// Row "🗑": soft-deletes the zone's historical override (see applyPastDataOverrides()) and clears its
+// dynamic-column values. Never deletes a drawn polygon — per-row confirm text says so explicitly.
+async function deleteZoneRow(el){
+  if (editHistDirtyRows.size && !confirm('You have unsaved changes that will be discarded. Continue?')) return;
+  const tr = el.closest('tr');
+  const meta = editHistRowsMeta[+tr.dataset.rowIndex];
+  const { valley, nom } = meta;
+  if (!confirm(`Delete the historical data for "${nom}" (${valley})? This only removes the historical override — any drawn polygon for this zone on the map is kept.`)) return;
+  try {
+    const { error: e1 } = await window.sb.from('management_unit_overrides')
+      .upsert({ valley, nom, deleted: true, updated_at: new Date().toISOString() }, { onConflict: 'valley,nom' });
+    if (e1) throw e1;
+    const { error: e2 } = await window.sb.from('management_unit_period_values').delete().eq('valley', valley).eq('nom', nom);
+    if (e2) throw e2;
+    pastDataOverrides.set(valley+'||'+nom, { ...(pastDataOverrides.get(valley+'||'+nom)||{}), Nom: nom, Valley: valley, Deleted: true });
+    for (const k of [...dynamicPeriodValues.keys()]) if (k.endsWith('||'+valley+'||'+nom)) dynamicPeriodValues.delete(k);
+    applyPastDataOverrides();
+    onDataUpdated();
+    editHistDirtyRows.clear();
+    renderEditManagementUnitView();
+  } catch(err) {
+    alert('Could not delete row: ' + (err.message || err));
+  }
+}
 function renderEditManagementUnitView(){
   const wrapEl = document.getElementById('editHistValleySelectWrap');
   if (wrapEl) wrapEl.innerHTML = valleyFilterSelect(editHistValleyFilter, 'setEditHistValley');
+  const newRowValleyWrap = document.getElementById('ehNewRowValleyWrap');
+  if (newRowValleyWrap) newRowValleyWrap.innerHTML = '<select id="ehNewRowValley" style="font-size:12px;padding:2px 4px;">' +
+    getAllValleys().map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('') + '</select>';
   const container = document.getElementById('editHistTableContainer');
   if (!container) return;
   const pastLookup = pastUnitLookupMap();
@@ -9318,7 +9505,18 @@ function renderEditManagementUnitView(){
     .map(u => ({ ...EMPTY_HIST_FIELDS, ...(pastLookup.get(u.Valley+'||'+u.Nom)||{}), Nom: u.Nom, Valley: u.Valley }))
     .sort((a,b) => (a.Valley+'||'+a.Nom).localeCompare(b.Valley+'||'+b.Nom));
   editHistRowsMeta = units.map(u => ({ nom: u.Nom, valley: u.Valley }));
-  const rowsHtml = units.map((u,i) => `<tr data-row-index="${i}">
+  const dynPeriods = [...dynamicPeriods].sort((a,b) => a.sort_order - b.sort_order);
+  const dynHeaderHtml = dynPeriods.map(p => `<th>${escapeHtml(DYNAMIC_PERIOD_TYPE_LABEL[p.type]||p.type)} ${escapeHtml(p.label)}
+      <button type="button" title="Delete this column" style="margin-left:4px;font-size:11px;padding:0 4px;" onclick="deleteDynamicColumn(${p.id})">🗑</button>
+    </th>`).join('');
+  const rowsHtml = units.map((u,i) => {
+    const dynCellsHtml = dynPeriods.map(p => {
+      const id = `ehDynField_${i}_${p.id}`;
+      const val = dynamicPeriodValues.get(p.id+'||'+u.Valley+'||'+u.Nom) || '';
+      if (p.type === 'veg') return `<td><input type="text" id="${id}" value="${escapeHtml(val)}" style="width:140px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>`;
+      return `<td>${categorySelectHtml(id, val, p.type === 'sb' ? SB_CATEGORY_OPTIONS : PLANT_CATEGORY_OPTIONS)}</td>`;
+    }).join('');
+    return `<tr data-row-index="${i}">
       <td><b>${escapeHtml(u.Valley)}</b></td>
       <td><b>${escapeHtml(u.Nom)}</b></td>
       <td><input type="text" id="ehField_${i}_site" value="${escapeHtml(u.Site||'')}" style="width:110px;font-size:12px;padding:2px 4px;" onchange="markEditHistDirty(this)"></td>
@@ -9334,13 +9532,19 @@ function renderEditManagementUnitView(){
       <td>${categorySelectHtml(`ehField_${i}_plant2023`, u.Plant2023, PLANT_CATEGORY_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_plant2024`, u.Plant2024, PLANT_CATEGORY_OPTIONS)}</td>
       <td>${categorySelectHtml(`ehField_${i}_plant2025`, u.Plant2025, PLANT_CATEGORY_OPTIONS)}</td>
-    </tr>`).join('');
+      ${dynCellsHtml}
+      <td><button type="button" class="secondary" title="Delete this zone's historical data" style="padding:2px 8px;font-size:12px;" onclick="deleteZoneRow(this)">🗑</button></td>
+    </tr>`;
+  }).join('');
+  const totalCols = 15 + dynPeriods.length + 1;
   container.innerHTML = `<div class="table-scroll"><table class="preview"><thead><tr>
       <th>Valley</th><th>Zone (Nom)</th><th>Site</th><th>Surface 2D</th><th>Surface 3D</th>
       <th>Veg 2023</th><th>Veg 2024</th><th>Veg 2025</th><th>Dominance</th>
       <th>SB 2023</th><th>SB 2024</th><th>SB 2025</th>
       <th>Plant 2023</th><th>Plant 2024</th><th>Plant 2025</th>
-    </tr></thead><tbody>${rowsHtml || '<tr><td colspan="15" class="muted">No units for this valley.</td></tr>'}</tbody></table></div>`;
+      ${dynHeaderHtml}
+      <th></th>
+    </tr></thead><tbody>${rowsHtml || `<tr><td colspan="${totalCols}" class="muted">No units for this valley.</td></tr>`}</tbody></table></div>`;
   editHistDirtyRows.clear();
   updateEditHistSaveBar();
   // Deliberately does NOT touch #editHistSaveStatus here: this function also runs from a background
