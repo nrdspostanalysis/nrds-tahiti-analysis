@@ -1,12 +1,14 @@
 name: Sync Metabase data
 
 on:
-  # Offset from :00/:15/:30/:45 — those exact marks are the most congested slots across all of
-  # GitHub Actions (every repo's naive "*/15" cron fires there too), so scheduled runs queued at
-  # them get delayed the most. GitHub's own docs recommend picking an off-the-mark minute to cut
-  # queueing delay; this repo was seeing 8-11h gaps instead of the intended 15min before this change.
-  schedule:
-    - cron: '7,22,37,52 * * * *'
+  # 2026-08-30: GitHub's own `schedule:` trigger is only best-effort — the :00/:15/:30/:45-offset
+  # fix above got this from 8-11h real gaps down to *only* 2-5.5h real gaps (checked via the Actions
+  # API), still nowhere near the intended 15min. This is a documented platform limitation for
+  # sub-hourly schedules, not something fixable by further tweaking the cron string, so the
+  # `schedule:` trigger has been dropped entirely. Cadence is now driven externally: a free
+  # cron-job.org job calls this workflow's `workflow_dispatch` REST endpoint every ~14 minutes
+  # (a direct API call, not subject to GitHub's internal scheduler queue) — see
+  # data/live/README.md for the exact request cron-job.org is configured with.
   workflow_dispatch: {}
 
 permissions:

@@ -3,6 +3,24 @@ Raw automated sync from Metabase (`metabase.nrds.io`), refreshed periodically by
 app itself — these files exist so the current official-NRDS data is available for future
 features (e.g. comparing against what's entered locally in this app).
 
+**2026-08-30 — sync cadence is driven by an external cron, not GitHub's own `schedule:` trigger.**
+GitHub's `schedule:` trigger for this workflow was found to be unreliable in practice — even with
+the earlier :00/:15/:30/:45-offset fix, real runs (checked via the Actions API) were 2-5.5h apart,
+not the intended 15min; this is a documented GitHub Actions platform limitation for sub-hourly
+schedules, not something fixable by tweaking the cron string further. `schedule:` was removed from
+the workflow entirely — only `workflow_dispatch` remains. Cadence is now driven by a free
+**cron-job.org** job (set up outside this repo, in Marco's own cron-job.org account) that calls,
+every ~14 minutes:
+```
+POST https://api.github.com/repos/nrdspostanalysis/nrds-tahiti-analysis/actions/workflows/sync-metabase.yml/dispatches
+Headers: Authorization: Bearer <fine-grained PAT, this repo only, Actions: Read and write, no other scopes>
+         Accept: application/vnd.github+json
+Body:    {"ref":"main"}
+```
+If the data ever looks stale again, check (in order): (1) is the cron-job.org job still enabled/not
+expired (free accounts can require periodic re-confirmation), (2) has the PAT expired or been
+revoked, (3) only then suspect the workflow/script itself (check the Actions tab for a red run).
+
 Column names for `deratisation.json`, `deratisation_checks.json`, and
 `historical_management_units.json` were cleaned up and cross-checked against known values.
 
