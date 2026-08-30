@@ -2000,11 +2000,14 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card" id="repeatPairsCard">
     <h2>Repeat-visit pairs — empirical τ check</h2>
     <div class="hint">Diagnostic for the recency-decay τ used in the Combined Cleaning Estimate (τ_Miconia / τ_Spathodea,
-      editable in the "Combined current estimate" calc box on the map). When the same zone has two cleaning sessions
-      logged back to back, the drop from the first visit's "end of day" % to the second visit's "arrival" % — over the
-      number of days between them — is a real, field-observed regrowth rate, not a literature guess. Pairs are grouped
-      by the zone's dominant invasive genus (same field used everywhere else). This only counts and reports what the
-      data currently supports — it does not automatically change τ.</div>
+      editable in the "Combined current estimate" calc box on the map). Two independent methods, shown and pooled
+      separately (never averaged together): (1) for sessions before 2026-08-25, when the same zone has two cleaning
+      sessions logged back to back, the drop from the first visit's "end of day" % to the second visit's "arrival" %
+      — over the number of days between them — is a real, field-observed regrowth rate. (2) NRDS stopped collecting
+      that % pair on 2026-08-25 (replaced by hours worked) — for sessions since then, the next visit's hours,
+      converted to a %-of-zone-area via the same person-hours/ha rate used elsewhere in the app, stand in for how
+      much regrew back. Pairs are grouped by the zone's dominant invasive genus (same field used everywhere else).
+      This only counts and reports what the data currently supports — it does not automatically change τ.</div>
     <button class="secondary" onclick="renderRepeatPairsAnalysis()">Generate repeat-pair analysis</button>
     <div id="repeatPairsContent" style="margin-top:12px;"></div>
   </div>
@@ -10812,7 +10815,68 @@ function repeatVisitPairs(){
       // improved isn't something exponential decay can explain (off-record maintenance, or noise)
       if (!(v1 > 0 && v2 > 0 && v2 < v1)) continue;
       const impliedTauDays = -days / Math.log(v2 / v1);
-      pairs.push({ unit: r1.Unit_Name, valley: r1.Valley, genus, date1: r1.Date, date2: r2.Date, v1, v2, days, impliedTauDays });
+      pairs.push({ unit: r1.Unit_Name, valley: r1.Valley, genus, date1: r1.Date, date2: r2.Date, v1, v2, days, impliedTauDays, method: 'pct' });
+    }
+  }
+  return pairs;
+}
+
+// Since 2026-08-25 NRDS replaced the arrival/end-of-day cleaning-% questions with Number_of_Hours
+// (see data/live/README.md) — repeatVisitPairs() above can never gain a new pair from a session
+// logged after that date, since it strictly requires both % readings, so it was silently frozen on
+// pre-2026-08-25 data only. This is a parallel empirical-τ check built from Number_of_Hours instead,
+// covering exactly the sessions repeatVisitPairs() can't use (no % logged).
+//
+// Kept as a genuinely separate diagnostic, never pooled into the same τ number as the %-based pairs
+// — same reasoning as why the "Planting NRDS-activity" comparison isn't blended with historical
+// Plantation %: two differently-measured signals shouldn't be averaged into one figure that implies
+// false precision (a subjective visual %-estimate vs. an hours-of-labor-derived one).
+//
+// Explicit assumption this makes (spelled out in the UI, not hidden): a cutting/maintenance visit
+// leaves a zone essentially fully cleared (~100%), and the *next* visit's Number_of_Hours — converted
+// to a %-of-zone-area via the same person-hours/ha rate already used elsewhere in the app
+// (personHoursPerHaForZone(), live-editable in the "Person-hours → %" box) — measures how much of
+// that 100% had regrown back by the time of the next visit. That regrowth fraction, over the days
+// between visits, inverts the same exponential-decay formula used everywhere else:
+//   regrown = 1 − e^(−days/τ)  →  τ = −days / ln(1 − regrown)
+// v1/v2 are synthesized as 100/(100·(1−regrown)) purely so pooledTauEstimate() (identical ln(v2/v1)
+// math) works unchanged on both pair shapes.
+function repeatVisitPairsFromHours(){
+  const rows = (enriched ? enriched.mainRows : [])
+    .filter(r => (r.Action === 'CUTTING' || r.Action === 'MAINTENANCE') && r.Unit_Name && r.Date &&
+      !(r.Pct_cleaned_arrival !== '' && r.Pct_cleaned_end_of_day !== '') && // only sessions repeatVisitPairs() can't already use
+      isFinite(+r.Number_of_Hours) && +r.Number_of_Hours > 0)
+    .map(r => ({ ...r, hours: +r.Number_of_Hours, people: +r.Number_of_Person || 1, ts: new Date(r.Date).getTime() }));
+  const byZone = new Map();
+  for (const r of rows){
+    const key = r.Valley + '||' + r.Unit_Name;
+    if (!byZone.has(key)) byZone.set(key, []);
+    byZone.get(key).push(r);
+  }
+  const pastLookup = pastUnitLookupMap();
+  const pairs = [];
+  for (const [key, zoneRows] of byZone){
+    zoneRows.sort((a,b) => a.ts - b.ts);
+    const unitName = zoneRows[0].Unit_Name, valley = zoneRows[0].Valley;
+    const u = (tables.managementUnit||[]).find(x => x['Nom'] === unitName && x['Vallee'] === valley);
+    const areaHa = u ? zoneAreaHectares(u['Geometry']) : null;
+    if (!areaHa) continue; // can't convert hours to a %-of-area without a real polygon
+    const hu = pastLookup.get(key);
+    const rate = personHoursPerHaForZone(hu);
+    if (!(rate > 0)) continue;
+    const vd = latestVegDominance(hu);
+    const rawGenus = vd ? dominantInvasiveGenusFromVeg(vd.raw) : null;
+    const genus = (rawGenus === 'miconia' || rawGenus === 'spathodea') ? rawGenus : 'other/unknown';
+    for (let i = 0; i < zoneRows.length - 1; i++){
+      const r1 = zoneRows[i], r2 = zoneRows[i+1];
+      const days = (r2.ts - r1.ts) / 86400000;
+      if (days <= 0) continue;
+      const personHours2 = r2.hours * r2.people;
+      const regrown = Math.min(0.999, personHours2 / (rate * areaHa));
+      if (!(regrown > 0)) continue;
+      const v1 = 100, v2 = 100 * (1 - regrown);
+      const impliedTauDays = -days / Math.log(v2 / v1);
+      pairs.push({ unit: unitName, valley, genus, date1: r1.Date, date2: r2.Date, v1, v2, personHours2, regrownPct: regrown*100, days, impliedTauDays, rate, areaHa, method: 'hours' });
     }
   }
   return pairs;
@@ -10838,44 +10902,59 @@ function pooledTauEstimate(pairs){
   return sumDaysY !== 0 ? -sumDays2 / sumDaysY : null;
 }
 
-function renderRepeatPairsAnalysis(){
-  const pairs = repeatVisitPairs();
-  const area = document.getElementById('repeatPairsContent');
-  if (!pairs.length){
-    area.innerHTML = '<p class="muted">No usable repeat-visit pairs yet — need the same zone visited twice, both with a logged cleaning %, and the second reading lower than the first. Not enough data to check τ empirically today; this will improve as more repeat visits accumulate — every consecutive pair of qualifying visits to the same zone is used (not just the two most recent), so a zone with 3+ visits already contributes multiple pairs.</p>';
-    return;
-  }
-  const genusLabel = { miconia: 'Miconia', spathodea: 'Spathodea', 'other/unknown': 'Other / unknown' };
+const REPEAT_PAIR_GENUS_LABEL = { miconia: 'Miconia', spathodea: 'Spathodea', 'other/unknown': 'Other / unknown' };
+function renderPairMethodBox(pairs, methodLabel, columnsHtml, rowHtml){
+  if (!pairs.length) return '';
   const byGenus = { miconia: [], spathodea: [], 'other/unknown': [] };
   for (const p of pairs) byGenus[p.genus].push(p);
   const mean = arr => arr.reduce((s,x)=>s+x,0) / arr.length;
-
-  let html = `<div class="grid3" style="margin-bottom:12px;">` +
-    Object.keys(genusLabel).map(g => {
+  let html = `<h3 style="margin:16px 0 6px;">${methodLabel}</h3>`;
+  html += `<div class="grid3" style="margin-bottom:12px;">` +
+    Object.keys(REPEAT_PAIR_GENUS_LABEL).map(g => {
       const arr = byGenus[g];
-      if (!arr.length) return `<div class="stat"><div class="num">0</div><div class="lbl">${genusLabel[g]} pair(s)</div></div>`;
+      if (!arr.length) return `<div class="stat"><div class="num">0</div><div class="lbl">${REPEAT_PAIR_GENUS_LABEL[g]} pair(s)</div></div>`;
       const pooled = pooledTauEstimate(arr);
       const avgTau = mean(arr.map(p=>p.impliedTauDays));
       return `<div class="stat"><div class="num">${pooled != null ? pooled.toFixed(0)+'d' : '—'}</div>` +
-        `<div class="lbl">${genusLabel[g]} — pooled τ estimate (${arr.length} pair${arr.length===1?'':'s'}; plain avg ${avgTau.toFixed(0)}d)</div></div>`;
+        `<div class="lbl">${REPEAT_PAIR_GENUS_LABEL[g]} — pooled τ estimate (${arr.length} pair${arr.length===1?'':'s'}; plain avg ${avgTau.toFixed(0)}d)</div></div>`;
     }).join('') + `</div>`;
-
-  html += `<p class="muted" style="margin-bottom:8px;"><b>Pooled τ</b> (the headline number in each box above) comes from
+  html += `<div class="table-scroll"><table class="preview"><thead><tr>${columnsHtml}</tr></thead><tbody>`;
+  const sorted = [...pairs].sort((a,b) => a.genus.localeCompare(b.genus) || a.unit.localeCompare(b.unit) || new Date(a.date1) - new Date(b.date1));
+  for (const p of sorted) html += rowHtml(p);
+  html += '</tbody></table></div>';
+  return html;
+}
+function renderRepeatPairsAnalysis(){
+  const pctPairs = repeatVisitPairs();
+  const hoursPairs = repeatVisitPairsFromHours();
+  const area = document.getElementById('repeatPairsContent');
+  if (!pctPairs.length && !hoursPairs.length){
+    area.innerHTML = '<p class="muted">No usable repeat-visit pairs yet — need the same zone visited twice in a row (either both with a logged cleaning %, or both cutting/maintenance sessions with hours logged). Not enough data to check τ empirically today; this will improve as more repeat visits accumulate.</p>';
+    return;
+  }
+  let html = `<p class="muted" style="margin-bottom:8px;"><b>Pooled τ</b> in each box comes from
     a weighted least-squares fit through the origin on <code>ln(v2/v1) = −days/τ</code> across all of that genus's pairs —
     more reliable than a plain average as data accumulates, since longer/steadier intervals count for more and one
-    short, noisy pair can't dominate it. Each pair's own <code>τ = −days / ln(v2/v1)</code> ("plain avg" component,
-    and per-row below) stays visible for transparency. v1 = end-of-day % of the earlier visit, v2 = arrival % of the
-    later visit. Diagnostic only — does not change the app's τ automatically.</p>`;
+    short, noisy pair can't dominate it. Each pair's own <code>τ = −days / ln(v2/v1)</code> stays visible for
+    transparency. Diagnostic only — does not change the app's τ automatically. The two methods below are kept
+    <b>separate, not pooled together</b> — they measure regrowth in genuinely different ways (a subjective visual
+    %-estimate vs. an hours-of-labor-derived one) and averaging them would imply a false precision.</p>`;
 
-  html += `<div class="table-scroll"><table class="preview"><thead><tr>
-    <th>Unit</th><th>Valley</th><th>Genus</th><th>Visit 1 (end %)</th><th>Visit 2 (arrival %)</th><th>Days between</th><th>Implied τ (this pair)</th>
-    </tr></thead><tbody>`;
-  const sorted = [...pairs].sort((a,b) => a.genus.localeCompare(b.genus) || a.unit.localeCompare(b.unit) || new Date(a.date1) - new Date(b.date1));
-  for (const p of sorted){
-    html += `<tr><td>${p.unit}</td><td>${p.valley}</td><td>${genusLabel[p.genus]}</td>` +
-      `<td>${p.v1}% (${p.date1})</td><td>${p.v2}% (${p.date2})</td><td>${p.days.toFixed(0)}</td><td><b>${p.impliedTauDays.toFixed(0)}d</b></td></tr>`;
-  }
-  html += '</tbody></table></div>';
+  html += renderPairMethodBox(pctPairs,
+    'From logged cleaning % (pre-2026-08-25 sessions — NRDS no longer collects this field)',
+    '<th>Unit</th><th>Valley</th><th>Genus</th><th>Visit 1 (end %)</th><th>Visit 2 (arrival %)</th><th>Days between</th><th>Implied τ</th>',
+    p => `<tr><td>${p.unit}</td><td>${p.valley}</td><td>${REPEAT_PAIR_GENUS_LABEL[p.genus]}</td>` +
+      `<td>${p.v1}% (${p.date1})</td><td>${p.v2}% (${p.date2})</td><td>${p.days.toFixed(0)}</td><td><b>${p.impliedTauDays.toFixed(0)}d</b></td></tr>`
+  ) || '<p class="muted">No usable %-based pairs (this method only ever covers sessions before 2026-08-25).</p>';
+
+  html += renderPairMethodBox(hoursPairs,
+    'From hours worked (2026-08-25 on — assumes a visit leaves a zone ~100% clear, and the next visit\'s hours measure how much regrew back; rate editable in "Person-hours → %" on the map)',
+    '<th>Unit</th><th>Valley</th><th>Genus</th><th>Visit 1</th><th>Visit 2 (hours → regrown %)</th><th>Days between</th><th>Implied τ</th>',
+    p => `<tr><td>${p.unit}</td><td>${p.valley}</td><td>${REPEAT_PAIR_GENUS_LABEL[p.genus]}</td>` +
+      `<td>${p.date1}</td><td>${p.regrownPct.toFixed(0)}% regrown (${p.personHours2.toFixed(1)} person-h @ ${p.rate} p-h/ha over ${p.areaHa.toFixed(2)}ha, ${p.date2})</td>` +
+      `<td>${p.days.toFixed(0)}</td><td><b>${p.impliedTauDays.toFixed(0)}d</b></td></tr>`
+  ) || '<p class="muted">No usable hours-based pairs yet — need two consecutive cutting/maintenance sessions in the same zone, both logged after 2026-08-25 with hours and a resolvable polygon area.</p>';
+
   area.innerHTML = html;
 }
 
