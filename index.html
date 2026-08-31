@@ -317,6 +317,10 @@
        (~600px of buttons) and overflows past the viewport instead of wrapping — forcing
        it to full width lets its own flex-wrap actually kick in. */
     .header-actions{width:100%;flex-shrink:1;justify-content:flex-start;row-gap:10px;column-gap:14px;}
+    /* Add Elements / Edit Management Unit are power-user tools awkward to use on a phone
+       (map drawing, editing dense historical tables) — keep the mobile header to just the
+       one action field crews actually need on-site. */
+    .desktop-only-action{display:none !important;}
     .card{padding:14px 14px;border-radius:9px;margin-bottom:14px;}
     .card h2{font-size:14.5px;}
     /* disable hover lift on touch devices */
@@ -1045,7 +1049,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <p>This app runs with a shared Metabase database for the Habitat Restoration actions (connected with NRDS.io) and with a Supabase online database for the remaining activities — actions you submit are visible to everyone</p>
   </div>
   <div class="header-actions" style="display:flex;align-items:center;gap:18px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-    <div style="display:flex;align-items:center;gap:10px;position:relative;">
+    <div class="desktop-only-action" style="display:flex;align-items:center;gap:10px;position:relative;">
       <span style="font-size:13px;font-weight:600;">Add Elements</span>
       <button class="nav-btn" id="addElementsBtn" onclick="toggleAddElementsMenu()" title="Draw a new zone, station or line on the map">✎</button>
       <div id="addElementsMenu" class="add-elements-menu" style="display:none;">
@@ -1059,7 +1063,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <span style="font-size:13px;font-weight:600;">Add a New Submission</span>
       <button class="nav-btn" onclick="showSubmitView()" title="Submit new data">+</button>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;">
+    <div class="desktop-only-action" style="display:flex;align-items:center;gap:10px;">
       <span style="font-size:13px;font-weight:600;">Edit Management Unit</span>
       <button class="nav-btn" onclick="showEditManagementUnitView()" title="Edit the historical (Butaud survey) data for management units">🗂️</button>
     </div>
