@@ -35,8 +35,9 @@
     transition:opacity .45s ease, visibility .45s ease;
   }
   #splash img{
-    width:88px;height:88px;border-radius:20px;
-    box-shadow:0 10px 30px rgba(0,0,0,.45);
+    width:132px;height:132px;border-radius:50%;object-fit:cover;
+    border:3px solid rgba(255,255,255,.55);
+    box-shadow:0 10px 34px rgba(0,0,0,.5),0 0 0 8px rgba(255,255,255,.06);
     animation:splashPulse 1.15s ease-in-out infinite;
   }
   #splash .splash-title{
@@ -1017,13 +1018,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </head>
 <body>
 <div id="splash">
-  <img src="icon.svg" alt="">
+  <img src="splash-monarch.jpg" alt="">
   <div class="splash-title">SOP MANU</div>
   <div class="splash-sub">Field Toolkit</div>
 </div>
 <script>
 (function(){
-  var MIN_SPLASH_MS = 500;
+  var MIN_SPLASH_MS = 750;
   window.addEventListener('load', function(){
     setTimeout(function(){
       var s = document.getElementById('splash');
