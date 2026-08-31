@@ -8682,6 +8682,8 @@ function renderMap(shouldFit){
       const res = combinedCleaningEstimate(hu, u['Nom'], st);
       fillColor = res.estimate != null ? pctColor(res.estimate) : '#d8d8d8';
       fillOpacity = 0.75;
+      const vdCombined = latestVegDominance(hu);
+      html += `<br>Vegetation: ${vdCombined ? `${vdCombined.raw} (${vdCombined.periodLabel})` : 'no vegetation data'}`;
       if (res.estimate != null){
         const nrdsTxt = !res.st ? 'no data'
           : res.usedFallback ? `${res.st.pct}% (single zone-level action, no station resolved, weight ${res.wNrdsPct.toFixed(0)}%)`
@@ -8760,6 +8762,8 @@ function renderMap(shouldFit){
       fillOpacity = 0.75;
       html += hv ? `<br>Understory management (historical, ${hv.periodLabel}): <b>${hv.raw}</b> (${hv.pct}%)` : '<br><i>no historical data for this unit</i>';
       html += `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
+      const vdCleaning = latestVegDominance(hu);
+      html += `<br>Vegetation: ${vdCleaning ? `${vdCleaning.raw} (${vdCleaning.periodLabel})` : 'no vegetation data'}`;
     } else if (mapLayers.has('cleaning')){
       const st = statusMap.get(u['Nom']);
       const actionSummary = zoneCleaningActionSummary(u['Nom']);
