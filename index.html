@@ -2275,6 +2275,23 @@ const EMPTY_HIST_FIELDS = { Site:null, Surface2D:null, Surface3D:null, Veg2023:n
 // ranking) — that math has recency/τ assumptions tied to the 3 named Butaud periods specifically.
 let dynamicPeriods = []; // [{id, type:'veg'|'sb'|'plant', label, sort_order}, ...]
 let dynamicPeriodValues = new Map(); // `${period_id}||${valley}||${nom}` -> value string
+// Most recent SB_2025 answer per zone from the Habitat Restoration log (tables.habitat, populated by
+// nrdsRowToHabitatRow() — see its comment). Keyed 'Valley||Unit Name', same key shape as pastData rows.
+function latestUnitSB2025FromHabitat(){
+  const map = new Map(); // key -> { value, date }
+  for (const r of (tables.habitat||[])){
+    const sb = r.SB_2025;
+    if (!sb || !r.Valley || !r['Unit Name']) continue;
+    const d = new Date(r.Date);
+    if (isNaN(d)) continue;
+    const key = r.Valley+'||'+r['Unit Name'];
+    const cur = map.get(key);
+    if (!cur || d >= cur.date) map.set(key, { value: sb, date: d });
+  }
+  const out = new Map();
+  for (const [key, v] of map) out.set(key, v.value);
+  return out;
+}
 function applyPastDataOverrides(){
   const base = pastDataBase || [];
   // ov.Deleted (a soft-delete "Delete row" in Edit Management Unit — see deleteZoneRow()) drops the
@@ -2337,6 +2354,20 @@ function applyPastDataOverrides(){
     if (existing) Object.assign(existing, nrdsVals);
     else {
       const fresh = { ...EMPTY_HIST_FIELDS, Nom: u.Nom, Valley: u.Vallee, ...nrdsVals };
+      merged.push(fresh);
+      mergedByKey.set(key, fresh);
+    }
+  }
+  // Habitat Restoration's own "Unit Name — SB 2025" question (see nrdsRowToHabitatRow()) is a
+  // second, independent NRDS source for the same SB2025 slot — one value per *visit*, not per
+  // zone, so take whichever visit is most recent per zone before overlaying (same "NRDS wins when
+  // present" priority as the Management Unit overlay above, applies here too).
+  for (const [key, sb] of latestUnitSB2025FromHabitat()){
+    const existing = mergedByKey.get(key);
+    if (existing) existing.SB2025 = sb;
+    else {
+      const [valley, nom] = key.split('||');
+      const fresh = { ...EMPTY_HIST_FIELDS, Nom: nom, Valley: valley, SB2025: sb };
       merged.push(fresh);
       mergedByKey.set(key, fresh);
     }
@@ -2730,7 +2761,15 @@ function nrdsRowToHabitatRow(r){
     'Précision Localisation (rat station name)': r.pr_cision_localisation_rat_st||'',
     '% cleaned at the end of the day': r.surface_that_has_been_cleaned_ ?? '',
     '% cleaned at arrival': r._cleaned_at_arrival ?? '', '% evaluation': r._evaluation ?? '',
-    Comment: r.comment||'', 'Rat line': r.rat_line_ligne_stat||'', Cleaned: r.cleaned||''
+    Comment: r.comment||'', 'Rat line': r.rat_line_ligne_stat||'', Cleaned: r.cleaned||'',
+    // Newer NRDS question (not present on the Management Unit table at all — that one only has
+    // veg/sb/plant 2023-2024, see applyPastDataOverrides()): field workers now also record the
+    // zone's current Sous Bois/understory status ("2025" period, same label as the fixed Butaud
+    // Dec-2025 slot) directly on each Habitat Restoration visit. 61/72 rows had this populated when
+    // found (2026-08-31) — a much more actively-collected field than Management Unit's own
+    // historical columns, and previously synced nowhere. Fed into pastData's SB2025 via
+    // latestUnitSB2025FromHabitat()/applyPastDataOverrides() below (most recent visit per zone wins).
+    'SB_2025': r.unit_name_sb_2025 || ''
   };
 }
 
@@ -2769,6 +2808,7 @@ function _applyHabitatDataFromNrds(data) {
   }
   tables.habitat = habitat; tables.sectionEspece = sectionEspece;
   dataLoaded.habitat = true;
+  applyPastDataOverrides(); // re-run: tables.habitat now has the latest per-visit SB_2025 answers
   maybeBuildEnriched();
 }
 // A plain .select('*') silently caps at PostgREST's default 1000-row limit — any table that grows
