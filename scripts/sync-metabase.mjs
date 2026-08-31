@@ -264,7 +264,6 @@ const HISTORICAL_MANAGEMENT_UNITS_MAP = [
 
 async function main() {
   const mu = await queryTable(6980, 'Management Unit');
-  console.log('DEBUG mu.cols:', JSON.stringify(mu.cols)); // temporary diagnostic, remove after use
   const dt = await queryTable(6982, 'Derat Tahiti');
   const es = await queryTable(6997, 'Espece');
   const dr = await queryTable(6981, 'Deratisation');
