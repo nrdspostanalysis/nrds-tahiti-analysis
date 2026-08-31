@@ -2312,6 +2312,35 @@ function applyPastDataOverrides(){
     knownKeys.add(k2);
     merged.push({ ...EMPTY_HIST_FIELDS, Nom: nom, Valley: valley });
   }
+  // NRDS's own "Management Unit" survey template also asks Vegetation/SB/Plantation for 2023 and
+  // 2024 (no 2025 question exists there — confirmed against live Metabase field metadata,
+  // 2026-08-31), synced into tables.managementUnit as Veg_2023/Veg_2024/SB_2023/SB_2024/
+  // Plant_2023/Plant_2024. Per Marco's choice (2026-08-31), these take priority over the Butaud
+  // baseline and manual "Edit Management Unit" overrides above whenever NRDS has a non-blank
+  // answer for that specific field/year — this is what lets a brand-new zone created directly on
+  // nrds.io (e.g. "prova" in Hopa) show its historical answers without someone also re-entering
+  // them by hand here. Applied per-field, not per-row, so a zone with e.g. only Vegetation filled
+  // in on nrds.io still keeps its existing SB/Plantation values from Excel/override untouched.
+  const mergedByKey = new Map(merged.map(u => [u.Valley+'||'+u.Nom, u]));
+  const NRDS_HIST_FIELD_MAP = [['Veg2023','Veg_2023'],['Veg2024','Veg_2024'],['SB2023','SB_2023'],
+    ['SB2024','SB_2024'],['Plant2023','Plant_2023'],['Plant2024','Plant_2024']];
+  for (const u of (tables.managementUnit || [])){
+    if (!u.Nom) continue;
+    const key = u.Vallee+'||'+u.Nom;
+    const nrdsVals = {};
+    for (const [outKey, srcKey] of NRDS_HIST_FIELD_MAP){
+      const v = u[srcKey];
+      if (v != null && v !== '') nrdsVals[outKey] = v;
+    }
+    if (!Object.keys(nrdsVals).length) continue;
+    const existing = mergedByKey.get(key);
+    if (existing) Object.assign(existing, nrdsVals);
+    else {
+      const fresh = { ...EMPTY_HIST_FIELDS, Nom: u.Nom, Valley: u.Vallee, ...nrdsVals };
+      merged.push(fresh);
+      mergedByKey.set(key, fresh);
+    }
+  }
   // Attach each zone's dynamic-column entries (own real date, from management_unit_periods.period_date)
   // so latestHistValue()/latestVegDominance() can compare them against the fixed 2023/2024/2025
   // columns by actual date and use whichever is genuinely most recent — see historicalTimeline-style
@@ -2663,6 +2692,7 @@ async function loadReferenceData(){
   ]);
   staticManagementUnit = mu; staticDeratTahiti = dt; tables.espece = es; birdSpeciesCatalog = bs || [];
   rebuildMergedTables();
+  applyPastDataOverrides(); // re-run now that tables.managementUnit (NRDS historical fields) is available
   dataLoaded.ref = true;
   populateFormReferenceOptions();
   maybeBuildEnriched();
