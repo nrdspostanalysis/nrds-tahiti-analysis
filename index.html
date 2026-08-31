@@ -1103,7 +1103,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
   <div class="card">
     <h2>1. Live data</h2>
-    <div class="hint">Data loads automatically from the shared online database — every visitor sees the same up-to-date actions, no upload needed. Tap the + button above to add a new action; it appears here, in the charts, and on the map for everyone within a few seconds.</div>
+    <div class="hint">Data loads automatically — everyone sees the same up-to-date actions, no upload needed. Tap + above to add one; it appears here, in the charts and on the map for everyone within seconds.</div>
     <div id="liveDataStatus" class="muted">Connecting…</div>
     <div id="deratDataStatus" class="muted"></div>
     <div id="buildSummary"></div>
@@ -1447,7 +1447,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card">
     <details id="pffDetails" ontoggle="onPffDetailsToggle(this.open)">
     <summary><h2 style="display:inline;margin:0;">3. Petite fourmi de feu (PFF)</h2></summary>
-    <div class="hint">Log Little Fire Ant (Wasmannia auropunctata) survey points — choose a status, tap/click the map to add a point (add as many as you like before submitting — handy for logging a whole walk/transect in one go), then submit them all at once. They appear on "2. Map" (layer "Little Fire Ant (PFF)") and in "4. Chart analysis" for everyone within a few seconds.</div>
+    <div class="hint">Log Little Fire Ant (Wasmannia auropunctata) survey points — pick a status, tap the map to add a point (add as many as you like, e.g. for a whole transect), then submit them all at once. They show up on "2. Map" (layer "Little Fire Ant (PFF)") and in "4. Chart analysis" for everyone within seconds.</div>
     <form id="pffForm" onsubmit="submitPffForm(event)">
       <div class="row" style="margin-bottom:10px;">
         <label class="muted">Date: <input type="date" id="pffDate" required></label>
@@ -1703,7 +1703,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card">
     <details id="birdObsDetails" ontoggle="onBirdObsDetailsToggle(this.open)">
     <summary><h2 style="display:inline;margin:0;">5. Birds Observation</h2></summary>
-    <div class="hint">Log any bird sighting — one or more individuals of any species, anywhere in the field. Unlike "4. Invasive Bird Survey" (a fixed 10-minute Myna/Bulbul/Wattled-Honeyeater point count), this is open-ended: tap the map, note the conditions, then pick species from the built-in photo/song catalog — or add one by name if it's not listed.</div>
+    <div class="hint">Log any bird sighting, anywhere in the field. Unlike "4. Invasive Bird Survey" (a fixed 10-minute Myna/Bulbul/Wattled-Honeyeater count), this is open-ended: tap the map, pick species from the built-in photo/song catalog (or add one by name), note the conditions.</div>
     <form id="birdObsForm" onsubmit="submitBirdObsForm(event)">
       <div class="row" style="margin-bottom:10px;flex-wrap:wrap;">
         <label class="muted">Date: <input type="date" id="boDate" required></label>
@@ -1801,7 +1801,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card">
     <details open>
     <summary><h2 style="display:inline;margin:0;">6. Activity Types</h2></summary>
-    <div class="hint">Define a brand-new kind of conservation activity that isn't Habitat Restoration or Dératisation — predator control, biosecurity checks, nest monitoring, translocation, disease surveillance, community outreach, equipment maintenance, anything the wider LIFE STOP EXTINCTION project needs. Pick a quick-start template or build one from scratch; once saved it's immediately available to everyone in "7. Log an Activity" below.</div>
+    <div class="hint">Define a new kind of conservation activity that isn't Habitat Restoration or Dératisation — predator control, biosecurity checks, community outreach, anything the wider LIFE STOP EXTINCTION project needs. Pick a template or build one from scratch; once saved it's immediately available to everyone in "7. Log an Activity" below.</div>
     <div id="atListWrap"></div>
     <button type="button" class="secondary" id="atToggleBtn" onclick="toggleActivityTypeBuilder()" style="margin-top:10px;">+ Create New Activity Type</button>
     <form id="atForm" onsubmit="submitActivityTypeForm(event)" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
@@ -2190,7 +2190,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button class="secondary" onclick="showFieldWorkView()" style="margin-bottom:16px;">← Back to Field Work</button>
   <div class="card">
     <h2>Cutting &amp; Maintenance vs Plantation — compared</h2>
-    <div class="hint">Invasive undergrowth removal/control (CUTTING + MAINTENANCE, measured in person-hours) versus new planting (PLANTATION, measured in individuals planted) — the two fundamentally different kinds of field work this app tracks, compared side by side rather than blended into one number.</div>
+    <div class="hint">Invasive removal/control (CUTTING + MAINTENANCE, in person-hours) versus new planting (PLANTATION, in individuals) — two different kinds of field work, compared side by side rather than blended into one number.</div>
     <div id="cuttingVsMaintenanceViewContent"></div>
   </div>
 </div>
