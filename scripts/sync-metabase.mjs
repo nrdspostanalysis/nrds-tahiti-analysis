@@ -263,11 +263,6 @@ const HISTORICAL_MANAGEMENT_UNITS_MAP = [
 ];
 
 async function main() {
-  // temporary diagnostic, remove after use
-  const dbRes = await fetchWithRetry(`${BASE_URL}/api/database/${DATABASE_ID}/metadata`, { headers: { 'X-API-Key': TOKEN } });
-  const dbJson = await dbRes.json();
-  console.log('DEBUG all tables:', JSON.stringify(dbJson.tables.map((t) => ({ id: t.id, name: t.name, display_name: t.display_name }))));
-
   const mu = await queryTable(6980, 'Management Unit');
   const dt = await queryTable(6982, 'Derat Tahiti');
   const es = await queryTable(6997, 'Espece');
