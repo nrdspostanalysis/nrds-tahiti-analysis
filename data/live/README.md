@@ -12,7 +12,7 @@ the workflow entirely — only `workflow_dispatch` remains. Cadence is now drive
 **cron-job.org** job (set up outside this repo, in Marco's own cron-job.org account) that calls,
 every ~14 minutes:
 ```
-POST https://api.github.com/repos/nrdspostanalysis/nrds-tahiti-analysis/actions/workflows/sync-metabase.yml/dispatches
+POST https://api.github.com/repos/sopmanufieldtoolkit/nrds-tahiti-analysis/actions/workflows/sync-metabase.yml/dispatches
 Headers: Authorization: Bearer <fine-grained PAT, this repo only, Actions: Read and write, no other scopes>
          Accept: application/vnd.github+json
 Body:    {"ref":"main"}
