@@ -8767,6 +8767,20 @@ function renderMap(shouldFit){
       fillOpacity = 0.75;
       html += st ? `<br>Cleaning % (latest survey ${st.date}): <b>${st.pct}%</b>${st.comment ? `<br><span class="muted">📝 ${escapeHtml(st.comment)}</span>` : ""}` : '<br><i>no cleaning % data</i>';
       html += `<br>Actions recorded: <b>${actionSummary.count}</b>${actionSummary.lastDate ? ` (last: ${actionSummary.lastDate})` : ''}`;
+      // Same forest-type/vegetation lines the "Historical plantings" overlay already shows — useful
+      // context here too, not just under that historical toggle.
+      const topoCleaning = zoneTypology(pastUnitLookup.get(u['Vallee']+'||'+u['Nom']));
+      const vegTxtCleaning = topoCleaning.vd ? `${topoCleaning.vd.raw} (${topoCleaning.vd.periodLabel})` : 'no vegetation data';
+      html += `<br><b>Type: ${topoCleaning.label}</b>`;
+      html += `<br>Vegetation: ${vegTxtCleaning}`;
+    } else if (mapLayers.has('species')){
+      // "Planted species" has no zone-level fill of its own (species are shown as point markers
+      // instead), but the zone popup itself was otherwise empty — same forest-type/vegetation lines
+      // as the other layers, without touching this layer's fillColor/fillOpacity.
+      const topoSpecies = zoneTypology(pastUnitLookup.get(u['Vallee']+'||'+u['Nom']));
+      const vegTxtSpecies = topoSpecies.vd ? `${topoSpecies.vd.raw} (${topoSpecies.vd.periodLabel})` : 'no vegetation data';
+      html += `<br><b>Type: ${topoSpecies.label}</b>`;
+      html += `<br>Vegetation: ${vegTxtSpecies}`;
     }
     for (const ringSet of rings){
       const poly = L.polygon(ringSet, { color: borderColor, weight: borderWeight, fillColor, fillOpacity });
