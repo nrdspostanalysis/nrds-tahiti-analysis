@@ -205,6 +205,15 @@
 
   /* ── Layout helpers ── */
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  /* Map overlay checkboxes (rat stations/lines, zone names, my location, pépinières): a grid rather
+     than a wrapping flex row so every checkbox lines up in tidy columns instead of drifting to
+     wherever the previous label's width happened to leave off. auto-fit collapses to a single
+     column on narrow (mobile) screens with no separate media-query rule needed. */
+  .map-overlay-toggles{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+    gap:9px 18px;margin-bottom:12px;
+  }
+  .map-overlay-toggles label.muted{margin:0;}
   .badge{
     display:inline-block;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:500;
     background:var(--green-xlight);color:var(--green-dark);border:1px solid #b5d5b5;
@@ -1939,12 +1948,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
           <label class="muted" style="display:block;margin-bottom:0;"><input type="checkbox" id="ml_ibs" onchange="toggleMapLayer('ibs',this.checked)"> 🦜 Invasive Bird Survey</label>
         </div>
       </div>
-      <label class="muted" style="margin-left:auto;">
+    </div>
+    <div class="map-overlay-toggles">
+      <label class="muted">
         <input type="checkbox" id="stationsOverlayToggle" onchange="toggleStationsOverlay(this.checked)">
         Overlay all rat stations
       </label>
-    </div>
-    <div class="row" style="margin-bottom:12px;">
       <label class="muted">
         <input type="checkbox" id="ratLinesOverlayToggle" onchange="toggleRatLinesOverlay(this.checked)">
         Overlay all rat lines (Ligne_stat)
@@ -1953,11 +1962,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
         <input type="checkbox" id="zoneNamesOverlayToggle" onchange="toggleZoneNamesOverlay(this.checked)">
         Show zone names
       </label>
-      <label class="muted">
-        <input type="checkbox" id="userLocationToggle" onchange="toggleUserLocation(this.checked)">
-        Show my location
-      </label>
-      <span id="userLocationStatus" class="muted"></span>
+      <span style="display:inline-flex;align-items:center;gap:8px;">
+        <label class="muted" style="margin:0;">
+          <input type="checkbox" id="userLocationToggle" onchange="toggleUserLocation(this.checked)">
+          Show my location
+        </label>
+        <span id="userLocationStatus" class="muted"></span>
+      </span>
       <label class="muted">
         <input type="checkbox" id="pepiniereLayerToggle" onchange="togglePepiniereLayer(this.checked)">
         Show pépinières
