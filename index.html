@@ -243,6 +243,26 @@
     box-shadow:0 1px 5px rgba(0,0,0,.12);
   }
 
+  /* ── Priority zones + Map split view ── */
+  .split-map-btn{
+    padding:7px 16px;font-size:13px;font-weight:600;border-radius:20px;cursor:pointer;
+    background:var(--card);color:var(--green-dark);border:1.5px solid var(--border);
+    transition:background .15s,color .15s,border-color .15s,box-shadow .15s;
+  }
+  .split-map-btn:hover{border-color:var(--green-light);}
+  .split-map-btn.active{background:var(--green);color:#fff;border-color:var(--green-dark);box-shadow:0 2px 8px rgba(46,125,50,.3);}
+  #priorityViewSplit{display:flex;gap:18px;align-items:flex-start;}
+  #priorityViewMainPane{flex:1 1 100%;min-width:0;}
+  #priorityViewMapPane{flex:1 1 0;min-width:0;display:none;}
+  /* Exact 50/50 split, only while active — untouched (single full-width column) otherwise */
+  #priorityViewSplit.split-active #priorityViewMainPane{flex:1 1 50%;}
+  #priorityViewSplit.split-active #priorityViewMapPane{display:block;flex:1 1 50%;}
+  @media(max-width:960px){
+    /* Two 50%-wide columns are too cramped below tablet width — stack instead, still only
+       reachable from a desktop-width screen since the toggle button itself is desktop-only. */
+    #priorityViewSplit.split-active{flex-direction:column;}
+  }
+
   /* ── Chart containers ── */
   .chart-box{overflow-x:auto;border:1px solid var(--border);border-radius:var(--r);padding:12px;background:#fdfefe;}
   svg text{font-family:'Segoe UI',system-ui,Arial,sans-serif;}
@@ -2116,11 +2136,19 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </div>
 
 <div class="wrap" id="priorityView" style="display:none;">
-  <button class="secondary" onclick="showFieldWorkView()" style="margin-bottom:16px;">← Back to Field Work</button>
-  <div class="card">
-    <h2>Priority zones to work on</h2>
-    <div class="hint">Three independent rankings for deciding which zones to work on next — planting, cutting, and maintenance — never blended into one number.</div>
-    <div id="priorityViewContent"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+    <button class="secondary" onclick="showFieldWorkView()" style="margin:0;">← Back to Field Work</button>
+    <button type="button" class="split-map-btn desktop-only-action" id="prioritySplitMapBtn" onclick="togglePrioritySplitMap()" title="Show the map side by side with this list">🗺️ Split view with Map</button>
+  </div>
+  <div id="priorityViewSplit">
+    <div id="priorityViewMainPane">
+      <div class="card">
+        <h2>Priority zones to work on</h2>
+        <div class="hint">Three independent rankings for deciding which zones to work on next — planting, cutting, and maintenance — never blended into one number.</div>
+        <div id="priorityViewContent"></div>
+      </div>
+    </div>
+    <div id="priorityViewMapPane"></div>
   </div>
 </div>
 
@@ -5920,6 +5948,40 @@ function showPriorityView(){
   if (location.hash !== '#priority') location.hash = 'priority';
   window.scrollTo(0,0);
 }
+// Lets "Priority zones to work on" open the Map (#mapCard, the same node #mapView normally shows)
+// side by side in an exact 50/50 split, toggled by the isolated button next to "← Back to Field
+// Work" — click again to close. #mapCard is physically reparented into #priorityViewMapPane rather
+// than rebuilt, since Leaflet's map instance is bound to the #mapContainer element inside it; moving
+// the node preserves that instance (just needs invalidateSize() once it's visible at its new size).
+let prioritySplitMapActive = false;
+function togglePrioritySplitMap(){
+  if (prioritySplitMapActive){ closePrioritySplitMap(); return; }
+  prioritySplitMapActive = true;
+  document.getElementById('priorityViewMapPane').appendChild(document.getElementById('mapCard'));
+  document.getElementById('priorityViewSplit').classList.add('split-active');
+  const btn = document.getElementById('prioritySplitMapBtn');
+  btn.classList.add('active');
+  btn.textContent = '🗺️ Close Map';
+  ensureMap();
+  // Leaflet measures its container's actual pixel size at invalidateSize() time, not before, so this
+  // has to run after the split-active layout above has actually reflowed the pane to its new width.
+  setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); }, 60);
+}
+function closePrioritySplitMap(){
+  prioritySplitMapActive = false;
+  document.getElementById('mapView').appendChild(document.getElementById('mapCard'));
+  document.getElementById('priorityViewSplit').classList.remove('split-active');
+  const btn = document.getElementById('prioritySplitMapBtn');
+  btn.classList.remove('active');
+  btn.textContent = '🗺️ Split view with Map';
+}
+// Safety net for every way to leave Priority zones other than the split button itself (the "← Back
+// to Field Work" button, a header nav button, hashchange/browser Back) — without this, #mapCard would
+// stay stranded inside the now-hidden #priorityViewMapPane and the real Map page would render empty
+// next time it's opened.
+new MutationObserver(() => {
+  if (prioritySplitMapActive && document.getElementById('priorityView').style.display === 'none') closePrioritySplitMap();
+}).observe(document.getElementById('priorityView'), { attributes: true, attributeFilter: ['style'] });
 function showLastPlantingView(){
   document.getElementById('homeView').style.display = 'none';
   document.getElementById('fieldWorkView').style.display = 'none';
