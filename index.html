@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="NRDS">
+<meta name="apple-mobile-web-app-title" content="Manu Field TK">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>SOP MANU — Field Toolkit</title>
@@ -5905,6 +5905,11 @@ function showAeEntryView(){
 // (#mapCard/#analysisCard) is unchanged — only which wrapper shows it moved.
 function showMapView(){
   document.getElementById('homeView').style.display = 'none';
+  document.getElementById('submitView').style.display = 'none';
+  document.getElementById('analysisView').style.display = 'none';
+  document.getElementById('fieldWorkView').style.display = 'none';
+  FIELD_WORK_DETAIL_VIEW_IDS.forEach(id => document.getElementById(id).style.display = 'none');
+  document.getElementById('editHistView').style.display = 'none';
   document.getElementById('mapView').style.display = '';
   if (location.hash !== '#map') location.hash = 'map';
   window.scrollTo(0,0);
@@ -8121,7 +8126,7 @@ const GPS_MIN_DISTANCE_M = 3; // skip a new fix if it's closer than this to the 
 
 function startDrawMode(type){
   document.getElementById('addElementsMenu').style.display = 'none';
-  showHomeView();
+  showMapView();
   ensureMap();
   document.getElementById('mapCard').scrollIntoView({ behavior:'smooth' });
   if (drawPreviewLayer){ leafletMap.removeLayer(drawPreviewLayer); drawPreviewLayer = null; }
@@ -8323,7 +8328,7 @@ async function saveDrawnElement(){
 // skips the whole click-to-place flow entirely and just shows a name-only form directly.
 function startNewValleyForm(){
   document.getElementById('addElementsMenu').style.display = 'none';
-  showHomeView();
+  showMapView();
   document.getElementById('mapCard').scrollIntoView({ behavior:'smooth' });
   cancelDrawMode(); // make sure no stray click handler from a previous zone/station/line draw is left bound
   drawMode = 'valley';

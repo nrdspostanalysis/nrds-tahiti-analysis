@@ -1,6 +1,6 @@
 {
-  "name": "NRDS Tahiti — SOP Manu",
-  "short_name": "NRDS",
+  "name": "SOP Manu Field Toolkit",
+  "short_name": "Manu Field TK",
   "description": "Habitat restoration & dératisation monitoring for LIFE STOP EXTINCTION, Tahiti valleys",
   "start_url": "./",
   "scope": "./",
