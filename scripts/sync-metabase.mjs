@@ -281,6 +281,10 @@ async function main() {
   const es = await queryTable(6997, 'Espece');
   const dr = await queryTable(6981, 'Deratisation');
   const dc = await queryTable(8446, 'Dératisation Checks', ['survey_id', 'derat']);
+  // TEMP DEBUG (2026-09-02): checking whether Metabase's schema cache has picked up the new
+  // Station/Ligne_stat/Conso_Ligne columns yet -- remove once resolved either way.
+  console.log('DEBUG Deratisation cols:', dr.cols);
+  console.log('DEBUG Dératisation Checks cols:', dc.cols);
   const hist = await queryTable(9447, 'Historical Management Units');
   // 2026-08-25: Marco removed the "% cleaned at the end of the day" / "% cleaned at arrival" /
   // "% evaluation" questions from the NRDS "Habitat Restoration" template (see
