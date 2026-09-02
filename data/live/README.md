@@ -10,7 +10,8 @@ not the intended 15min; this is a documented GitHub Actions platform limitation 
 schedules, not something fixable by tweaking the cron string further. `schedule:` was removed from
 the workflow entirely — only `workflow_dispatch` remains. Cadence is now driven by a free
 **cron-job.org** job (set up outside this repo, in Marco's own cron-job.org account) that calls,
-every ~14 minutes:
+every 1h (changed 2026-08-31 from the original ~14min — the tighter cadence wasn't needed for
+this kind of field data and was burning Actions minutes unnecessarily):
 ```
 POST https://api.github.com/repos/sopmanufieldtoolkit/nrds-tahiti-analysis/actions/workflows/sync-metabase.yml/dispatches
 Headers: Authorization: Bearer <fine-grained PAT, this repo only, Actions: Read and write, no other scopes>

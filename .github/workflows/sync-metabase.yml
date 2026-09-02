@@ -6,9 +6,10 @@ on:
   # API), still nowhere near the intended 15min. This is a documented platform limitation for
   # sub-hourly schedules, not something fixable by further tweaking the cron string, so the
   # `schedule:` trigger has been dropped entirely. Cadence is now driven externally: a free
-  # cron-job.org job calls this workflow's `workflow_dispatch` REST endpoint every ~14 minutes
-  # (a direct API call, not subject to GitHub's internal scheduler queue) — see
-  # data/live/README.md for the exact request cron-job.org is configured with.
+  # cron-job.org job calls this workflow's `workflow_dispatch` REST endpoint (a direct API call,
+  # not subject to GitHub's internal scheduler queue) — every 1h as of 2026-08-31 (was ~14min
+  # until then, reduced to cut Actions minutes usage) — see data/live/README.md for the exact
+  # request cron-job.org is configured with.
   workflow_dispatch: {}
 
 permissions:
