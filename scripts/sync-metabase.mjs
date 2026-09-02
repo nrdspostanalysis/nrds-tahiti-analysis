@@ -245,6 +245,9 @@ const DERATISATION_MAP = [
   // 'ligne_stat_ligne_stat', not the guessed 'ligne_stat'. Conso_Ligne (plain Custom source) needed
   // no such fix.
   ['Ligne_stat', 'ligne_stat_ligne_stat'],
+  // Companion "_id" column: the linked Derat Tahiti record's own Identifier, not just its display
+  // name -- lets consumers match the exact record instead of re-deriving it from the name.
+  ['Ligne_stat_Id', 'ligne_stat_ligne_stat_id'],
   ['Conso_Ligne', 'conso_ligne'],
 ];
 
@@ -262,6 +265,12 @@ const DERATISATION_CHECKS_MAP = [
   // "{section}_{question}_{linked field}", not just the question name -- 'checks_station_station',
   // not the originally guessed 'station'.
   ['Station', 'checks_station_station'],
+  // Companion "_id" column: the linked Derat Tahiti record's own Identifier for this exact station
+  // pick. Station *codes* collide across valleys (e.g. "E4" exists in Maruapo, Hopa and Papehue
+  // alike), and this app's old valley-from-Zone-prefix heuristic breaks whenever Zone doesn't
+  // follow the "Valley-Letter" convention (free text, no validation -- confirmed 2026-09-02 with a
+  // real submission using Zone "HK"). Matching on this id instead sidesteps both problems entirely.
+  ['Station_Id', 'checks_station_station_id'],
 ];
 
 const HISTORICAL_MANAGEMENT_UNITS_MAP = [
