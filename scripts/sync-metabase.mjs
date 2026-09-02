@@ -249,6 +249,16 @@ const DERATISATION_MAP = [
   // name -- lets consumers match the exact record instead of re-deriving it from the name.
   ['Ligne_stat_Id', 'ligne_stat_ligne_stat_id'],
   ['Conso_Ligne', 'conso_ligne'],
+  // 'Vallee' added 2026-09-02 (Select, Source: Templates -> Vallee -- the same 3-option reference
+  // template Habitat Restoration's own Valley field uses, column 'valle1_vallee' there) after a
+  // real submission picked the wrong Derat Tahiti station (Station_Id resolved to Maruapo's "E4"
+  // instead of the intended Hopa's "E4" -- station codes collide across valleys and the picker
+  // shows no valley context to disambiguate). An explicit, unambiguous 3-option valley field is
+  // far less error-prone than picking the right duplicate-coded station, so consumers should
+  // prefer this over Station_Id/Ligne_stat_Id-derived valley when present. Guessed column name
+  // 'vallee_vallee' follows the same "{question}_{linked field}" convention confirmed for
+  // Ligne_stat/Station above -- not yet verified against a real synced value.
+  ['Vallee', 'vallee_vallee'],
 ];
 
 const DERATISATION_CHECKS_MAP = [
