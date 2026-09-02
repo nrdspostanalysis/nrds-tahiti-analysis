@@ -6607,7 +6607,7 @@ function weightedCleaningPctSummary(){
   return { overall: totalArea ? sum/totalArea : null, byValley };
 }
 // Informal team target, not sourced from any official document — adjust here if it changes.
-const PLANTING_MONTHLY_TARGET_PER_VALLEY = 50;
+const PLANTING_MONTHLY_TARGET_PER_VALLEY = 55;
 function monthlyPlantingSummary(mainRows){
   const monthPrefix = new Date().toISOString().slice(0,7); // "YYYY-MM", calendar month
   const byValley = {};
