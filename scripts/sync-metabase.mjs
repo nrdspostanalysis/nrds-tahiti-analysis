@@ -255,9 +255,9 @@ const DERATISATION_MAP = [
   // instead of the intended Hopa's "E4" -- station codes collide across valleys and the picker
   // shows no valley context to disambiguate). An explicit, unambiguous 3-option valley field is
   // far less error-prone than picking the right duplicate-coded station, so consumers should
-  // prefer this over Station_Id/Ligne_stat_Id-derived valley when present. Guessed column name
-  // 'vallee_vallee' follows the same "{question}_{linked field}" convention confirmed for
-  // Ligne_stat/Station above -- not yet verified against a real synced value.
+  // prefer this over Station_Id/Ligne_stat_Id-derived valley when present. Column name confirmed
+  // via a debug run (2026-09-02): 'vallee_vallee', matching the guessed
+  // "{question}_{linked field}" convention from Ligne_stat/Station above.
   ['Vallee', 'vallee_vallee'],
 ];
 
@@ -301,7 +301,6 @@ async function main() {
   const dt = await queryTable(6982, 'Derat Tahiti');
   const es = await queryTable(6997, 'Espece');
   const dr = await queryTable(6981, 'Deratisation');
-  console.log('DEBUG Deratisation cols:', dr.cols.filter((c) => /valle/i.test(c)));
   const dc = await queryTable(8446, 'Dératisation Checks', ['survey_id', 'derat']);
   const hist = await queryTable(9447, 'Historical Management Units');
   // 2026-08-25: Marco removed the "% cleaned at the end of the day" / "% cleaned at arrival" /
