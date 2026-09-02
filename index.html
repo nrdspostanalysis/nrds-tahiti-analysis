@@ -7101,7 +7101,13 @@ function renderDeratChart(container){
   }
 
   const rows = (tables.deratisation||[]).map(d => {
-    const checks = (checksByIdent.get(d.Identifier) || []).filter(c => c.Conso != null && c.Conso !== '' && isFinite(+c.Conso));
+    let checks = (checksByIdent.get(d.Identifier) || []).filter(c => c.Conso != null && c.Conso !== '' && isFinite(+c.Conso));
+    // 'Conso_Ligne' patrols (2026-09-02): no per-station Checks rows at all, just one score for the
+    // whole line -- represent as a single synthetic "check" so this chart (and its popup) still
+    // picks the patrol up instead of silently dropping it for having zero real Checks.
+    if (!checks.length && d.Conso_Ligne != null && d.Conso_Ligne !== '' && isFinite(+d.Conso_Ligne)){
+      checks = [{ Derat: '(whole line)', Conso: d.Conso_Ligne }];
+    }
     if (!checks.length || !d.Date) return null;
     const avgConso = checks.reduce((s,c)=>s+(+c.Conso),0) / checks.length;
     return { ...d, valley: (d.Zone||'').split('-')[0], checks, avgConso, ts: new Date(d.Date).getTime() };
@@ -7939,6 +7945,24 @@ function latestStationConso(dateFrom, dateTo){
     const cur = map.get(key);
     if (!cur || new Date(patrol.Date) > new Date(cur.date)){
       map.set(key, { conso:+c.Conso, date:patrol.Date, valley, station:c.Derat, observer:patrol.Observer });
+    }
+  }
+  // 'Conso_Ligne' (added 2026-09-02): an alternative to logging Conso per station -- one score for
+  // the whole line, applied here to every station Derat Tahiti lists under that Ligne_stat. Merged
+  // into the same per-station map so whichever reading (line-level or per-station) is more recent
+  // wins for each station, same as if it had been entered individually. Ligne_stat names are already
+  // valley-qualified (e.g. "Hopa-A"), so matching on the name alone is enough -- no separate valley
+  // check needed, unlike station codes which do collide across valleys.
+  for (const patrol of tables.deratisation||[]){
+    if (patrol.Conso_Ligne == null || patrol.Conso_Ligne === '' || !isFinite(+patrol.Conso_Ligne) || !patrol.Ligne_stat) continue;
+    if (!patrol.Date || !inDateRange(patrol.Date, dateFrom, dateTo)) continue;
+    for (const s of (tables.deratTahiti||[])){
+      if (s.Ligne_stat !== patrol.Ligne_stat || !s.Vallee || !s.Station) continue;
+      const key = s.Vallee + '||' + s.Station;
+      const cur = map.get(key);
+      if (!cur || new Date(patrol.Date) > new Date(cur.date)){
+        map.set(key, { conso:+patrol.Conso_Ligne, date:patrol.Date, valley:s.Vallee, station:s.Station, observer:patrol.Observer });
+      }
     }
   }
   return map;
