@@ -239,9 +239,12 @@ const DERATISATION_MAP = [
   ['Passage', 'passage'],
   // 'Ligne_stat' and 'Conso_Ligne' added 2026-09-02 (Select, Source: Templates -> Derat Tahiti /
   // Select, Source: Custom 0-4) as an alternative to logging Conso per individual rat station:
-  // Conso_Ligne lets a whole line get one score instead of one Checks row per station. Same
-  // Metabase-schema-propagation caveat as 'Station' above -- maps to '' until it appears.
-  ['Ligne_stat', 'ligne_stat'],
+  // Conso_Ligne lets a whole line get one score instead of one Checks row per station. Confirmed
+  // via a debug run (2026-09-02) that Metabase names a Templates-sourced Select's column
+  // "{question}_{linked field}", not just the question name -- Ligne_stat's real column is
+  // 'ligne_stat_ligne_stat', not the guessed 'ligne_stat'. Conso_Ligne (plain Custom source) needed
+  // no such fix.
+  ['Ligne_stat', 'ligne_stat_ligne_stat'],
   ['Conso_Ligne', 'conso_ligne'],
 ];
 
@@ -254,12 +257,11 @@ const DERATISATION_CHECKS_MAP = [
   ['Derat', 'derat'],
   ['Conso', 'conso'],
   // 'Station' question added 2026-09-01 (Select, Source: Templates -> Derat Tahiti), replacing
-  // free-text 'Derat' as the intended way to pick a station going forward. Column won't exist in
-  // Metabase's schema until NRDS's own sync picks up the new question (same propagation lag seen
-  // with the 2026-08-25 Habitat Restoration schema edit) -- until then this maps to '' via the
-  // mapRows fallback, no crash, no code change needed once it appears. Guessed slug 'station';
-  // verify against real query_metadata once the first real submission using it has synced.
-  ['Station', 'station'],
+  // free-text 'Derat' as the intended way to pick a station going forward. Real column name
+  // confirmed via a debug run (2026-09-02): Metabase names a Templates-sourced Select's column
+  // "{section}_{question}_{linked field}", not just the question name -- 'checks_station_station',
+  // not the originally guessed 'station'.
+  ['Station', 'checks_station_station'],
 ];
 
 const HISTORICAL_MANAGEMENT_UNITS_MAP = [
@@ -281,10 +283,6 @@ async function main() {
   const es = await queryTable(6997, 'Espece');
   const dr = await queryTable(6981, 'Deratisation');
   const dc = await queryTable(8446, 'Dératisation Checks', ['survey_id', 'derat']);
-  // TEMP DEBUG (2026-09-02): checking whether Metabase's schema cache has picked up the new
-  // Station/Ligne_stat/Conso_Ligne columns yet -- remove once resolved either way.
-  console.log('DEBUG Deratisation cols:', dr.cols);
-  console.log('DEBUG Dératisation Checks cols:', dc.cols);
   const hist = await queryTable(9447, 'Historical Management Units');
   // 2026-08-25: Marco removed the "% cleaned at the end of the day" / "% cleaned at arrival" /
   // "% evaluation" questions from the NRDS "Habitat Restoration" template (see
