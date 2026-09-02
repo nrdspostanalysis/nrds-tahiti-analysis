@@ -301,6 +301,7 @@ async function main() {
   const dt = await queryTable(6982, 'Derat Tahiti');
   const es = await queryTable(6997, 'Espece');
   const dr = await queryTable(6981, 'Deratisation');
+  console.log('DEBUG Deratisation cols:', dr.cols.filter((c) => /valle/i.test(c)));
   const dc = await queryTable(8446, 'Dératisation Checks', ['survey_id', 'derat']);
   const hist = await queryTable(9447, 'Historical Management Units');
   // 2026-08-25: Marco removed the "% cleaned at the end of the day" / "% cleaned at arrival" /
