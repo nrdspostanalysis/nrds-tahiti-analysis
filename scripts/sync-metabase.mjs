@@ -237,6 +237,12 @@ const DERATISATION_MAP = [
   ['Observer', 'observer'],
   ['Zone', 'zone'],
   ['Passage', 'passage'],
+  // 'Ligne_stat' and 'Conso_Ligne' added 2026-09-02 (Select, Source: Templates -> Derat Tahiti /
+  // Select, Source: Custom 0-4) as an alternative to logging Conso per individual rat station:
+  // Conso_Ligne lets a whole line get one score instead of one Checks row per station. Same
+  // Metabase-schema-propagation caveat as 'Station' above -- maps to '' until it appears.
+  ['Ligne_stat', 'ligne_stat'],
+  ['Conso_Ligne', 'conso_ligne'],
 ];
 
 const DERATISATION_CHECKS_MAP = [

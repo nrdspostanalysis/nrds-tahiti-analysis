@@ -2876,8 +2876,12 @@ function _applyDeratData(data) {
 // is mostly a type-normalize pass. Both files share the same Identifier (the NRDS patrol's
 // survey_id) for a patrol and its child station-checks, same join shape Supabase's nested
 // r.checks[] produced.
+// 'Ligne_stat' and 'Conso_Ligne' added to the NRDS Dératisation template 2026-09-02, letting a
+// whole line get one Conso score instead of a Checks row per station. Passed through raw here;
+// not yet consumed by any UI feature (same "staged for later" status data/live/*.json's other
+// unused fields have carried before).
 function nrdsDeratRowToRow(r){
-  return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'' };
+  return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'', Ligne_stat: r.Ligne_stat||'', Conso_Ligne: r.Conso_Ligne||'' };
 }
 // 'Station' (Select, Source: Derat Tahiti) was added to the NRDS Dératisation template on
 // 2026-09-01 alongside the pre-existing free-text 'Derat', as the new intended way to pick a
