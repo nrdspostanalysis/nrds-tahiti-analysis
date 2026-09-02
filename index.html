@@ -2899,19 +2899,24 @@ function _applyDeratData(data) {
 // survey_id) for a patrol and its child station-checks, same join shape Supabase's nested
 // r.checks[] produced.
 // 'Ligne_stat' and 'Conso_Ligne' added to the NRDS Dératisation template 2026-09-02, letting a
-// whole line get one Conso score instead of a Checks row per station. Passed through raw here;
-// not yet consumed by any UI feature (same "staged for later" status data/live/*.json's other
-// unused fields have carried before).
+// whole line get one Conso score instead of a Checks row per station.
+// Ligne_stat_Id is Metabase's companion column for the linked-record's own Identifier in
+// data/derat_tahiti.json -- an exact match, unlike Ligne_stat's free text (Zone doesn't reliably
+// follow "Valley-Letter", and station/line codes like "E4" repeat across valleys). Prefer it for
+// any valley/station lookup; Ligne_stat itself stays for display and as a fallback for rows
+// created before this field existed.
 function nrdsDeratRowToRow(r){
-  return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'', Ligne_stat: r.Ligne_stat||'', Conso_Ligne: r.Conso_Ligne||'' };
+  return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'', Ligne_stat: r.Ligne_stat||'', Ligne_stat_Id: r.Ligne_stat_Id||'', Conso_Ligne: r.Conso_Ligne||'' };
 }
 // 'Station' (Select, Source: Derat Tahiti) was added to the NRDS Dératisation template on
 // 2026-09-01 alongside the pre-existing free-text 'Derat', as the new intended way to pick a
 // station -- 'Derat' stays untouched (4072+ existing checks are tied to it, and its NRDS question
 // type can't be changed once it has data). Prefer 'Station' once real entries start using it;
 // fall back to 'Derat' for all the historical/in-flight rows that only have the old field.
+// Station_Id is the linked record's own Identifier in data/derat_tahiti.json (see Ligne_stat_Id
+// above for why this beats matching on the free-text Station/Derat code).
 function nrdsChecksRowToRow(r){
-  return { Identifier: String(r.Identifier), Derat: r.Station||r.Derat||'', Conso: r.Conso||'' };
+  return { Identifier: String(r.Identifier), Derat: r.Station||r.Derat||'', Station_Id: r.Station_Id||'', Conso: r.Conso||'' };
 }
 function _applyDeratDataFromNrds(deratRows, checksRows) {
   tables.deratisation = deratRows.map(nrdsDeratRowToRow);
@@ -7965,21 +7970,31 @@ function latestStationStatus(dateFrom, dateTo){
 }
 // Same "latest reading per station" idea as latestStationStatus(), for the Dératisation map layer —
 // keyed Valley||Station (Derat Tahiti station codes collide across valleys, same gotcha as everywhere
-// else this composite key is used). Valley is parsed from the patrol's own Zone field (e.g. "Hopa-A"),
-// since Dératisation has no separate Valley column.
+// else this composite key is used).
 function latestStationConso(dateFrom, dateTo){
   const patrolByIdent = new Map((tables.deratisation||[]).map(d => [d.Identifier, d]));
+  const stationById = new Map((tables.deratTahiti||[]).map(s => [String(s.Identifier), s]));
   const map = new Map(); // key: Valley+'||'+Station
   for (const c of tables.sectionChecks||[]){
     if (c.Conso == null || c.Conso === '' || !isFinite(+c.Conso) || !c.Derat) continue;
     const patrol = patrolByIdent.get(c.Identifier);
     if (!patrol || !patrol.Date || !inDateRange(patrol.Date, dateFrom, dateTo)) continue;
-    const valley = (patrol.Zone||'').split('-')[0];
-    if (!valley) continue;
-    const key = valley + '||' + c.Derat;
+    // Station_Id (added 2026-09-02) is the exact linked Derat Tahiti record's Identifier -- prefer
+    // it over parsing the patrol's free-text Zone (no reliable "Valley-Letter" convention; a real
+    // entry used Zone="HK") and matching the station code alone (codes like "E4" collide across
+    // valleys). Rows from before this field existed fall back to the old Zone-parsing heuristic.
+    let valley, station;
+    const linked = c.Station_Id ? stationById.get(String(c.Station_Id)) : null;
+    if (linked && linked.Vallee && linked.Station){
+      valley = linked.Vallee; station = linked.Station;
+    } else {
+      valley = (patrol.Zone||'').split('-')[0]; station = c.Derat;
+    }
+    if (!valley || !station) continue;
+    const key = valley + '||' + station;
     const cur = map.get(key);
     if (!cur || new Date(patrol.Date) > new Date(cur.date)){
-      map.set(key, { conso:+c.Conso, date:patrol.Date, valley, station:c.Derat, observer:patrol.Observer });
+      map.set(key, { conso:+c.Conso, date:patrol.Date, valley, station, observer:patrol.Observer });
     }
   }
   // 'Conso_Ligne' (added 2026-09-02): an alternative to logging Conso per station -- one score for
