@@ -2905,8 +2905,13 @@ function _applyDeratData(data) {
 // follow "Valley-Letter", and station/line codes like "E4" repeat across valleys). Prefer it for
 // any valley/station lookup; Ligne_stat itself stays for display and as a fallback for rows
 // created before this field existed.
+// 'Vallee' added 2026-09-02 (Select, Source: Templates -> Vallee, 3 unambiguous options) after a
+// real submission picked the wrong duplicate-coded Derat Tahiti station (Station_Id resolved to
+// Maruapo's "E4" while the crew was in Hopa, Zone "HK") -- an explicit valley pick is far less
+// error-prone than the station list, so prefer it over Station_Id/Zone-derived valley wherever a
+// patrol's valley is needed. Empty for rows predating this field.
 function nrdsDeratRowToRow(r){
-  return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'', Ligne_stat: r.Ligne_stat||'', Ligne_stat_Id: r.Ligne_stat_Id||'', Conso_Ligne: r.Conso_Ligne||'' };
+  return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'', Ligne_stat: r.Ligne_stat||'', Ligne_stat_Id: r.Ligne_stat_Id||'', Conso_Ligne: r.Conso_Ligne||'', Vallee: r.Vallee||'' };
 }
 // 'Station' (Select, Source: Derat Tahiti) was added to the NRDS Dératisation template on
 // 2026-09-01 alongside the pre-existing free-text 'Derat', as the new intended way to pick a
@@ -7150,7 +7155,7 @@ function renderDeratChart(container){
     }
     if (!checks.length || !d.Date) return null;
     const avgConso = checks.reduce((s,c)=>s+(+c.Conso),0) / checks.length;
-    return { ...d, valley: (d.Zone||'').split('-')[0], checks, avgConso, ts: new Date(d.Date).getTime() };
+    return { ...d, valley: d.Vallee || (d.Zone||'').split('-')[0], checks, avgConso, ts: new Date(d.Date).getTime() };
   }).filter(Boolean)
     .filter(r => valley === 'all' || r.valley === valley)
     .filter(r => inDateRange(r.Date, chartDateFrom, chartDateTo))
@@ -7979,13 +7984,17 @@ function latestStationConso(dateFrom, dateTo){
     if (c.Conso == null || c.Conso === '' || !isFinite(+c.Conso) || !c.Derat) continue;
     const patrol = patrolByIdent.get(c.Identifier);
     if (!patrol || !patrol.Date || !inDateRange(patrol.Date, dateFrom, dateTo)) continue;
-    // Station_Id (added 2026-09-02) is the exact linked Derat Tahiti record's Identifier -- prefer
-    // it over parsing the patrol's free-text Zone (no reliable "Valley-Letter" convention; a real
-    // entry used Zone="HK") and matching the station code alone (codes like "E4" collide across
-    // valleys). Rows from before this field existed fall back to the old Zone-parsing heuristic.
+    // Valley priority: 1) the patrol's own explicit Vallee pick (3 unambiguous options -- added
+    // 2026-09-02 specifically because Station_Id alone wasn't enough: a real submission picked the
+    // wrong duplicate-coded station, Maruapo's "E4" instead of Hopa's, so Station_Id pointed at the
+    // wrong valley too); 2) Station_Id's linked Derat Tahiti record, still better than free-text
+    // Zone parsing for rows that predate the Vallee field; 3) the old Zone-prefix heuristic, for
+    // rows that predate both.
     let valley, station;
     const linked = c.Station_Id ? stationById.get(String(c.Station_Id)) : null;
-    if (linked && linked.Vallee && linked.Station){
+    if (patrol.Vallee){
+      valley = patrol.Vallee; station = c.Derat;
+    } else if (linked && linked.Vallee && linked.Station){
       valley = linked.Vallee; station = linked.Station;
     } else {
       valley = (patrol.Zone||'').split('-')[0]; station = c.Derat;
@@ -10477,8 +10486,11 @@ function renderLastRatLineCleaningDropdown(mainRows){
 
 // "Dératisation activity" (2026-09-02): per-line monitoring list, filling a real gap -- until now
 // dératisation had no Field Work overview akin to "Last cleaning actions"/"Last planting actions".
-// Groups by patrol.Zone (the line name, e.g. "Hopa-A") since it's populated on every historical
-// patrol, unlike the newer Ligne_stat Select field, which is only set once someone actually picks it.
+// "line" groups by patrol.Zone (the line name, e.g. "Hopa-A") since it's populated on every
+// historical patrol, unlike the newer Ligne_stat Select field, which is only set once someone
+// actually picks it. "valley" prefers the explicit Vallee field (added 2026-09-02, see
+// latestStationConso()) over parsing it out of that same free-text Zone/line, for the same
+// wrong-valley-picked reason.
 // avgConso per patrol reuses the same per-station-Checks-with-Conso_Ligne-fallback logic as
 // renderDeratChart() (see there for why it's needed) -- duplicated rather than shared since that
 // function is wired into the chart-popup/pinPopup machinery this view doesn't use.
@@ -10498,7 +10510,7 @@ function deratPatrolRows(){
     if (!checks.length || !d.Date) return null;
     const avgConso = checks.reduce((s,c)=>s+(+c.Conso),0) / checks.length;
     const line = d.Zone || d.Ligne_stat || '';
-    return { identifier:d.Identifier, date:d.Date, valley:line.split('-')[0]||'', line, passage:d.Passage||'', observer:d.Observer||'', avgConso, stationCount:checks.length, wholeLine };
+    return { identifier:d.Identifier, date:d.Date, valley:d.Vallee || line.split('-')[0]||'', line, passage:d.Passage||'', observer:d.Observer||'', avgConso, stationCount:checks.length, wholeLine };
   }).filter(Boolean);
 }
 function renderDeratActivityDropdown(){
