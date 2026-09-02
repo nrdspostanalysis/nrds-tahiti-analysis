@@ -247,6 +247,13 @@ const DERATISATION_CHECKS_MAP = [
   ['Passage', 'passage'],
   ['Derat', 'derat'],
   ['Conso', 'conso'],
+  // 'Station' question added 2026-09-01 (Select, Source: Templates -> Derat Tahiti), replacing
+  // free-text 'Derat' as the intended way to pick a station going forward. Column won't exist in
+  // Metabase's schema until NRDS's own sync picks up the new question (same propagation lag seen
+  // with the 2026-08-25 Habitat Restoration schema edit) -- until then this maps to '' via the
+  // mapRows fallback, no crash, no code change needed once it appears. Guessed slug 'station';
+  // verify against real query_metadata once the first real submission using it has synced.
+  ['Station', 'station'],
 ];
 
 const HISTORICAL_MANAGEMENT_UNITS_MAP = [

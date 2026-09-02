@@ -2879,8 +2879,13 @@ function _applyDeratData(data) {
 function nrdsDeratRowToRow(r){
   return { Identifier: String(r.Identifier), Date: (r.Date||'').slice(0,10), Observer: r.Observer||'', Zone: r.Zone||'', Passage: r.Passage||'' };
 }
+// 'Station' (Select, Source: Derat Tahiti) was added to the NRDS Dératisation template on
+// 2026-09-01 alongside the pre-existing free-text 'Derat', as the new intended way to pick a
+// station -- 'Derat' stays untouched (4072+ existing checks are tied to it, and its NRDS question
+// type can't be changed once it has data). Prefer 'Station' once real entries start using it;
+// fall back to 'Derat' for all the historical/in-flight rows that only have the old field.
 function nrdsChecksRowToRow(r){
-  return { Identifier: String(r.Identifier), Derat: r.Derat||'', Conso: r.Conso||'' };
+  return { Identifier: String(r.Identifier), Derat: r.Station||r.Derat||'', Conso: r.Conso||'' };
 }
 function _applyDeratDataFromNrds(deratRows, checksRows) {
   tables.deratisation = deratRows.map(nrdsDeratRowToRow);
