@@ -94,8 +94,15 @@ self.addEventListener('fetch', function(e) {
    * never appeared on the map even though the sync itself was working correctly). */
   var isDataJson = url.pathname.indexOf(BASE + 'data/') === 0;
   if (url.origin === self.location.origin && (isAppShell || isDataJson)) {
+    /* GitHub Pages serves every file with Cache-Control: max-age=600 -- a plain fetch(req) still
+     * honors that and can be silently answered from the browser's own HTTP disk cache without
+     * ever reaching the network, defeating "network-first" for up to 10 minutes after any page
+     * loaded that resource (confirmed 2026-09-02: this, not the Cache API above, is why a reload
+     * without a manual cache-clear kept showing stale data). { cache: 'no-store' } forces the
+     * browser to actually hit the network; we still keep our own copy via the Cache API put()
+     * below for the offline fallback. */
     e.respondWith(
-      fetch(req).then(function(resp) {
+      fetch(req, { cache: 'no-store' }).then(function(resp) {
         if (resp && resp.ok) caches.open(CACHE).then(function(c) { c.put(req, resp.clone()); });
         return resp;
       }).catch(function() {
